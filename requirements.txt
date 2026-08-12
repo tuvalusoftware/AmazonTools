@@ -1,0 +1,12 @@
+# Scheduler
+APScheduler==3.10.4
+
+# ScrapeGraphAI — open-source library (SmartScraperGraph)
+scrapegraphai
+
+# Playwright is required by scrapegraphai for JS rendering
+# After pip install, run:  playwright install
+playwright
+
+# Settings / env loading
+pydantic-settings==2.3.4

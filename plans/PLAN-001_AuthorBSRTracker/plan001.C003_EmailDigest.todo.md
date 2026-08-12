@@ -1,0 +1,93 @@
+# PLAN-001 — C003: Email Digest Job
+
+← [plan001.main.md](plan001.main.md)
+
+Delivers `jobs/email_digest.py` and `templates/digest.html` — queries all active tracked books from SQLite, builds an HTML email per registered author, and sends it via SMTP. Each email includes the author's book economics (profit % and current price) plus one-click unsubscribe links.
+
+**Depends on:** [plan001.C002_BsrJobExtension.todo.md](plan001.C002_BsrJobExtension.todo.md)
+
+---
+
+## Jinja2 template (`templates/digest.html`)
+
+- [ ] Create `templates/` folder at repo root
+- [ ] Create `templates/digest.html` — minimal HTML email layout
+- [ ] Template variables:
+  - `email: str` — recipient email address (used in footer unsubscribe link)
+  - `books: list` — each item: `{title, asin, current_rank, category, trend, profit_pct, current_price, estimated_daily_profit, unsubscribe_book_url}`
+  - `unsubscribe_all_url: str` — footer-level unsubscribe for the whole address
+- [ ] `current_rank` — most recent rank integer; display as `#1,523`
+- [ ] `category` — full category path string
+- [ ] `trend` — list of `{date, rank}` for up to 7 prior days; render as a simple table row (not a chart)
+- [ ] `profit_pct` — display as `70%`
+- [ ] `current_price` — display as `$14.99`
+- [ ] `estimated_daily_profit` — optional computed field (see email builder notes)
+- [ ] Each book row includes a small "Unsubscribe this book" link pointing to `unsubscribe_book_url`
+- [ ] Email footer includes an "Unsubscribe all emails for {{ email }}" link pointing to `unsubscribe_all_url`
+- [ ] Use inline CSS only — no external stylesheets (email clients strip `<head>` styles)
+- [ ] Show a friendly "No rank data yet" row when `current_rank` is `None`
+
+---
+
+## Snapshot reader helper
+
+- [ ] In `jobs/email_digest.py` write `load_latest_snapshot(asin: str) -> dict | None`
+  - Glob `data/<asin>/*.json`; sort by filename (ISO timestamp); load the newest file
+  - Return the first rank entry dict or `None` if no files exist
+- [ ] Write `load_rank_history(asin: str, days: int = 7) -> list[dict]`
+  - Load the `days` most recent snapshot files; extract first entry per file
+  - Return list of `{date: str, rank: int}` sorted oldest-first
+
+---
+
+## Email builder
+
+- [ ] Import `jinja2.Environment, FileSystemLoader` — load template from `templates/`
+- [ ] Import `urllib.parse.quote` for building unsubscribe URLs
+- [ ] Write `build_digest_html(email: str, books: list[dict]) -> str`
+  - For each tracked book call `load_latest_snapshot` + `load_rank_history`
+  - Pass `profit_pct` and `current_price` from registry record into template context
+  - Optionally compute `estimated_daily_profit = current_price * (profit_pct / 100)` and include it
+  - Build per-book `unsubscribe_book_url = f"{settings.WEB_BASE_URL}/unsubscribe?email={quote(email)}&asin={asin}"`
+  - Build `unsubscribe_all_url = f"{settings.WEB_BASE_URL}/unsubscribe?email={quote(email)}"`
+  - Assemble the template context; render and return HTML string
+- [ ] Write `send_email(to: str, subject: str, html_body: str) -> None`
+  - Use `smtplib.SMTP` with STARTTLS (`settings.SMTP_PORT == 587`) or `SMTP_SSL` (`465`)
+  - Login with `settings.SMTP_USER` / `settings.SMTP_PASSWORD`
+  - Build `email.mime.multipart.MIMEMultipart("alternative")` + `MIMEText(html_body, "html")`
+  - Send to the provided `to` address (per-book email from registry)
+  - Log success and recipient at INFO; log SMTP errors at ERROR (do not raise)
+
+---
+
+## Digest job entry point
+
+- [ ] Write `run() -> None` in `jobs/email_digest.py`
+  - Call `load_active_books()` from `utils.registry` — returns only `active=1` rows
+  - Skip and log a warning when no active books are tracked
+  - Group books by `email` — one digest email per unique author email address
+  - For each unique email call `build_digest_html(email, books_for_author)` then `send_email(email, subject, html)`
+  - Subject: `"📚 Daily BSR Digest — <date>"`
+  - Log total authors emailed
+
+---
+
+## Scheduler registration (`main.py`)
+
+- [ ] Import `run as email_digest_run` from `jobs.email_digest`
+- [ ] Add job with `CronTrigger.from_crontab(settings.EMAIL_DIGEST_CRON)`, id `"email_digest"`
+- [ ] Log `"email_digest job registered"` at startup
+
+---
+
+## Verification
+
+- [ ] Set real `SMTP_*` values and at least one active row in `data/tracker.db`
+- [ ] Run `python -c "from jobs.email_digest import run; run()"` — confirm email received
+- [ ] Verify subject line contains today's date
+- [ ] Verify each tracked book appears with its current rank, profit %, and price
+- [ ] Verify each book row contains a "Unsubscribe this book" link with correct `email` and `asin` query params
+- [ ] Verify the email footer contains an "Unsubscribe all" link with correct `email` query param
+- [ ] Test with empty `tracked_books` table — confirm warning logged, no email sent, no crash
+- [ ] Test with all records `active=0` — confirm warning logged (load_active_books returns []), no email sent
+- [ ] Test with a missing `SMTP_PASSWORD` — confirm error logged, no unhandled exception
