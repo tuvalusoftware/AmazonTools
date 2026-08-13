@@ -10,3 +10,17 @@ playwright
 
 # Settings / env loading
 pydantic-settings==2.3.4
+
+# HTML email templating
+Jinja2>=3.1
+
+# Web UI (used by C004 Web UI chapter)
+fastapi
+uvicorn[standard]
+python-multipart
+
+# HTML parsing (used by scripts/lookup_asin.py)
+beautifulsoup4
+
+# PDF chart generation (used by reports/mock_charts.py)
+matplotlib

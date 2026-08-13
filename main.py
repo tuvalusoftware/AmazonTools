@@ -1,5 +1,5 @@
 """
-Entry point — starts the APScheduler cron loop.
+Entry point — starts the APScheduler cron loop and the FastAPI web UI.
 
 Usage:
     python main.py
@@ -7,14 +7,19 @@ Usage:
 
 import signal
 import sys
+import threading
 import time
 
+import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import settings
+from jobs.email_digest import run as email_digest_run
 from jobs.scrape_bsr import run as scrape_bsr_job
 from utils.logger import get_logger
+from utils.registry import BookRepo
+from web.app import app as web_app
 
 log = get_logger(__name__)
 
@@ -25,7 +30,24 @@ def _shutdown(scheduler: BackgroundScheduler, sig, frame) -> None:
     sys.exit(0)
 
 
+def _start_web_server() -> None:
+    """Run the FastAPI app in a daemon thread so it doesn't block the scheduler."""
+    log.info("Web UI available at http://localhost:%d", settings.WEB_PORT)
+    uvicorn.run(
+        web_app,
+        host="0.0.0.0",
+        port=settings.WEB_PORT,
+        log_level="warning",
+    )
+
+
 def main() -> None:
+    BookRepo().init_db()
+    log.info("SQLite registry initialised at %s", settings.DB_PATH)
+
+    web_thread = threading.Thread(target=_start_web_server, daemon=True, name="web-ui")
+    web_thread.start()
+
     log.info("Starting Amazon BSR Scraper — cron tool")
 
     scheduler = BackgroundScheduler(timezone=settings.TIMEZONE)
@@ -38,6 +60,16 @@ def main() -> None:
         replace_existing=True,
         misfire_grace_time=60,
     )
+
+    scheduler.add_job(
+        email_digest_run,
+        trigger=CronTrigger.from_crontab(settings.EMAIL_DIGEST_CRON, timezone=settings.TIMEZONE),
+        id="email_digest",
+        name="Send Daily BSR Digest Email",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    log.info("email_digest job registered")
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda s, f: _shutdown(scheduler, s, f))

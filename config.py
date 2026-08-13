@@ -4,7 +4,16 @@ Centralised settings — loaded once from environment variables / .env file.
 
 from __future__ import annotations
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SmtpSettings(BaseModel):
+    host: str = "smtp.gmail.com"
+    port: int = 587
+    user: str = ""
+    password: str = ""      # Gmail app password or SendGrid key
+    from_addr: str = ""
 
 
 class Settings(BaseSettings):
@@ -12,12 +21,13 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        env_nested_delimiter="__",
     )
 
     # ------------------------------------------------------------------ #
     # Scheduler                                                            #
     # ------------------------------------------------------------------ #
-    CRON_SCHEDULE: str = "0 * * * *"
+    CRON_SCHEDULE: str = "0 23 * * *"       # scrape once daily at 23:00
     TIMEZONE: str = "Asia/Ho_Chi_Minh"
 
     # ------------------------------------------------------------------ #
@@ -61,6 +71,22 @@ class Settings(BaseSettings):
     OUTPUT_FORMAT: str = "json"   # json | csv
 
     BROWSER_STATE_PATH: str = "data/browser_state.json"
+    DB_PATH: str = "data/tracker.db"
+
+    # ------------------------------------------------------------------ #
+    # Email / SMTP                                                         #
+    # ------------------------------------------------------------------ #
+    smtp: SmtpSettings = SmtpSettings()
+
+    # Comma-separated fallback recipients; overridden by per-book email in registry
+    EMAIL_TO: str = ""
+    EMAIL_DIGEST_CRON: str = "30 23 * * *"  # daily 23:30 local time (after scrape)
+
+    # ------------------------------------------------------------------ #
+    # Web UI                                                               #
+    # ------------------------------------------------------------------ #
+    WEB_PORT: int = 8080
+    WEB_BASE_URL: str = "http://localhost:8080"
 
     # ------------------------------------------------------------------ #
     # Amazon credentials                                                   #
@@ -77,6 +103,10 @@ class Settings(BaseSettings):
     @property
     def asins(self) -> list[str]:
         return [a.strip() for a in self.TARGET_ASINS.split(",") if a.strip()]
+
+    @property
+    def email_recipients(self) -> list[str]:
+        return [e.strip() for e in self.EMAIL_TO.split(",") if e.strip()]
 
 
 settings = Settings()
