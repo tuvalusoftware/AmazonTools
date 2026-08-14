@@ -52,10 +52,15 @@ Delivers `jobs/email_digest.py` and `templates/digest.html` — queries all acti
   - Build per-book `unsubscribe_book_url = f"{settings.WEB_BASE_URL}/unsubscribe?email={quote(email)}&asin={asin}"`
   - Build `unsubscribe_all_url = f"{settings.WEB_BASE_URL}/unsubscribe?email={quote(email)}"`
   - Assemble the template context; render and return HTML string
-- [x] Write `send_email(to: str, subject: str, html_body: str) -> None`
+- [x] Write `send_email(to: str, subject: str, html_body: str, attachment: Path | None = None) -> None`
   - Use `smtplib.SMTP` with STARTTLS (`settings.SMTP_PORT == 587`) or `SMTP_SSL` (`465`)
   - Login with `settings.SMTP_USER` / `settings.SMTP_PASSWORD`
-  - Build `email.mime.multipart.MIMEMultipart("alternative")` + `MIMEText(html_body, "html")`
+  - When `attachment` is `None`: build `MIMEMultipart("alternative")` + `MIMEText(html_body, "html")`
+  - When `attachment` is provided:
+    - Outer envelope: `MIMEMultipart("mixed")`
+    - Attach an `MIMEMultipart("alternative")` sub-part containing the HTML body
+    - Read PDF bytes and attach as `MIMEApplication(pdf_bytes, Name=attachment.name)` with
+      `Content-Disposition: attachment; filename="<attachment.name>"`
   - Send to the provided `to` address (per-book email from registry)
   - Log success and recipient at INFO; log SMTP errors at ERROR (do not raise)
 
@@ -66,9 +71,14 @@ Delivers `jobs/email_digest.py` and `templates/digest.html` — queries all acti
 - [x] Write `run() -> None` in `jobs/email_digest.py`
   - Call `load_active_books()` from `utils.registry` — returns only `active=1` rows
   - Skip and log a warning when no active books are tracked
+  - Generate the daily PDF report into a temp file:
+    - `tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)`
+    - `pdf_path = Service_Pdf_GenFromAsin(output_path=Path(tmp.name)).run()`
+    - Filename used as attachment name: `f"bsr_report_{date.today().isoformat()}.pdf"`
   - Group books by `email` — one digest email per unique author email address
-  - For each unique email call `build_digest_html(email, books_for_author)` then `send_email(email, subject, html)`
+  - For each unique email call `build_digest_html(email, books_for_author)` then `send_email(email, subject, html, attachment=pdf_path)`
   - Subject: `"📚 Daily BSR Digest — <date>"`
+  - Delete the temp PDF file after all emails have been sent
   - Log total authors emailed
 
 ---
@@ -89,6 +99,9 @@ Delivers `jobs/email_digest.py` and `templates/digest.html` — queries all acti
 - [ ] Verify each tracked book appears with its current rank, profit %, and price
 - [ ] Verify each book row contains a "Unsubscribe this book" link with correct `email` and `asin` query params
 - [ ] Verify the email footer contains an "Unsubscribe all" link with correct `email` query param
+- [ ] Verify the email has a PDF attachment named `bsr_report_<today>.pdf`
+- [ ] Open the attached PDF — confirm it contains pages for all active tracked books
+- [ ] Confirm no temp PDF file is left behind after the run
 - [ ] Test with empty `tracked_books` table — confirm warning logged, no email sent, no crash
 - [ ] Test with all records `active=0` — confirm warning logged (load_active_books returns []), no email sent
 - [ ] Test with a missing `SMTP_PASSWORD` — confirm error logged, no unhandled exception

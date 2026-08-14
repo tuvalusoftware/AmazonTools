@@ -186,6 +186,7 @@ Each scrape run inserts N rows into `bsr_snapshots` — one per rank/category pa
 | C004 | `plan001.C004_WebUI.todo.md` | FastAPI web app — registration form + unsubscribe routes | Not started |
 | C004A | `plan001.C004A_PriceScraping.todo.md` | Remove manual price field; scrape live price from Amazon product page after ASIN resolves | Not started |
 | C005 | `plan001.C005_Docker.todo.md` | Dockerfile + docker-compose.yml + named volume + .dockerignore | Not started |
+| C006 | `plan001.C006_PdfReportFromDb.todo.md` | PDF performance report generated from live `bsr_snapshots` + `tracked_books` data | Not started |
 
 ---
 
@@ -200,6 +201,7 @@ Each scrape run inserts N rows into `bsr_snapshots` — one per rank/category pa
 | `plan001.C004_WebUI.todo.md` | Chapter 4 tasks — Web UI registration app |
 | `plan001.C004A_PriceScraping.todo.md` | Chapter 4A tasks — remove manual price field; scrape from Amazon |
 | `plan001.C005_Docker.todo.md` | Chapter 5 tasks — Docker image + compose + volume |
+| `plan001.C006_PdfReportFromDb.todo.md` | Chapter 6 tasks — PDF report from live DB data |
 
 ---
 
