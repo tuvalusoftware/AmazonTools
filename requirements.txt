@@ -24,3 +24,8 @@ beautifulsoup4
 
 # PDF chart generation (used by reports/mock_charts.py)
 matplotlib
+
+# Testing
+pytest
+pytest-asyncio
+httpx2

@@ -174,17 +174,17 @@ reports/
 > The PDF is **not** scheduled separately. `jobs/email_digest.py` generates the PDF as part of
 > its daily run and attaches it to each author's digest email. No new cron job or env var is needed.
 
-- [ ] In `jobs/email_digest.py`, call `Service_Pdf_GenFromAsin(asin_filter=None, output_path=tmp_path).run()` once per email batch
+- [x] In `jobs/email_digest.py`, call `Service_Pdf_GenFromAsin(asin_filter=None, output_path=tmp_path).run()` once per email batch
   - Generate the PDF into a `tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)` path
   - Pass the resulting `Path` to `send_email(...)` as an `attachment` parameter
   - Delete the temp file after all emails for that run have been sent
-- [ ] Update `send_email(to, subject, html_body, attachment: Path | None = None)` in `jobs/email_digest.py`:
+- [x] Update `send_email(to, subject, html_body, attachment: Path | None = None)` in `jobs/email_digest.py`:
   - When `attachment` is not `None`, wrap the message in `MIMEMultipart("mixed")` instead of `"alternative"`
   - Attach the HTML part as a `MIMEMultipart("alternative")` sub-part
   - Read the PDF bytes and attach as `MIMEApplication(pdf_bytes, Name=attachment.name)` with
     `Content-Disposition: attachment; filename="<attachment.name>"`
   - When `attachment` is `None`, behaviour is unchanged (send HTML-only email)
-- [ ] PDF filename convention: `bsr_report_YYYY-MM-DD.pdf` (today's UTC date)
+- [x] PDF filename convention: `bsr_report_YYYY-MM-DD.pdf` (today's UTC date)
   — set this as the `output_path` when calling `Service_Pdf_GenFromAsin`
 
 ---

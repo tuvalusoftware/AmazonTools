@@ -22,6 +22,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from config import settings
 from reports.Service_pdf_genFromAsin import Service_Pdf_GenFromAsin
+from utils.Formula_calculator import Formula
 from utils.logger import get_logger
 from utils.registry import BookRepo
 
@@ -46,21 +47,22 @@ def _build_digest_html(email: str, books: list[dict]) -> str:
     for book in books:
         asin: str = book["asin"]
         snapshot = repo.load_latest_snapshot(asin)
-        trend = repo.load_rank_history(asin, days=7)
 
-        current_rank = snapshot["rank"] if snapshot else None
-        category = snapshot["category"] if snapshot else ""
+        current_rank: int | None = int(snapshot["rank"]) if snapshot else None  # type: ignore[arg-type]
+        category: str = str(snapshot["category"]) if snapshot else ""
 
-        profit_pct: float = float(book["profit_pct"])
+        profit_pct: float = float(book["profit_pct"])  # type: ignore[arg-type]
         # Price comes from the latest BSR snapshot; fall back to the seed value
         # in tracked_books (0.0) if no snapshot exists yet.
         current_price: float = (
-            float(snapshot["price"])
+            float(snapshot["price"])  # type: ignore[arg-type]
             if snapshot and snapshot.get("price")
-            else float(book["current_price"])
+            else float(book["current_price"])  # type: ignore[arg-type]
         )
         estimated_daily_profit: float | None = (
-            current_price * (profit_pct / 100.0) if current_rank is not None else None
+            Formula.daily_profit(current_rank, current_price, profit_pct)
+            if current_rank is not None
+            else None
         )
 
         unsubscribe_book_url = (
@@ -74,7 +76,6 @@ def _build_digest_html(email: str, books: list[dict]) -> str:
                 "asin": asin,
                 "current_rank": current_rank,
                 "category": category,
-                "trend": trend,
                 "profit_pct": profit_pct,
                 "current_price": current_price,
                 "estimated_daily_profit": estimated_daily_profit,

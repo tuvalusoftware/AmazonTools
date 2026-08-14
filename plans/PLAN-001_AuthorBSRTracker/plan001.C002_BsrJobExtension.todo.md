@@ -2,7 +2,7 @@
 
 ← [plan001.main.md](plan001.main.md)
 
-Extends `jobs/scrape_bsr.py` to read active books from the SQLite registry and adds the new `smtp.*`, `EMAIL_TO`, `WEB_PORT`, `WEB_BASE_URL`, and `DB_PATH` config keys.
+Extends `jobs/scrape_bsr.py` to read active books from the SQLite registry and adds the new `smtp.*`, `WEB_PORT`, `WEB_BASE_URL`, and `DB_PATH` config keys.
 
 **Depends on:** [plan001.C001_AsinLookup.todo.md](plan001.C001_AsinLookup.todo.md)  
 **Next →** [plan001.C003_EmailDigest.todo.md](plan001.C003_EmailDigest.todo.md)
@@ -21,11 +21,9 @@ Extends `jobs/scrape_bsr.py` to read active books from the SQLite registry and a
 - [x] Add `smtp: SmtpSettings = SmtpSettings()` field to `Settings`
   - Set via `.env` / env vars using double-underscore delimiter: `SMTP__HOST`, `SMTP__USER`, `SMTP__PASSWORD`, `SMTP__FROM_ADDR`
   - Requires `env_nested_delimiter="__"` in `model_config` ← **already added**
-- [x] Add `EMAIL_TO: str = ""` (fallback comma-separated for multiple recipients; overridden by per-book `email` from registry)
 - [x] Add `EMAIL_DIGEST_CRON: str = "0 8 * * *"` (daily at 08:00 local time)
 - [x] Add `WEB_PORT: int = 8080` (port the FastAPI registration UI listens on)
 - [x] Add `WEB_BASE_URL: str = "http://localhost:8080"` (base URL prepended to unsubscribe links in emails; set to the public host when running in Docker)
-- [x] Add `@property email_recipients(self) -> list[str]` — split + strip `EMAIL_TO`
 - [x] Update `.env` (if present) with placeholder values for the new keys:
   ```
   SMTP__HOST=smtp.gmail.com
@@ -33,7 +31,6 @@ Extends `jobs/scrape_bsr.py` to read active books from the SQLite registry and a
   SMTP__USER=
   SMTP__PASSWORD=
   SMTP__FROM_ADDR=
-  EMAIL_TO=
   EMAIL_DIGEST_CRON=0 8 * * *
   WEB_PORT=8080
   WEB_BASE_URL=http://localhost:8080

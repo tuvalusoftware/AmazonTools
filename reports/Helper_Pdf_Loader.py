@@ -61,7 +61,7 @@ class Helper_Pdf_Loader:
         if book_row is not None:
             title = str(book_row.get("title") or "")
             raw_pct = book_row.get("profit_pct")
-            profit_pct = float(raw_pct) if raw_pct else _DEFAULT_PROFIT_PCT
+            profit_pct = float(raw_pct) if isinstance(raw_pct, (int, float)) and raw_pct else _DEFAULT_PROFIT_PCT
         else:
             title = asin
             profit_pct = _DEFAULT_PROFIT_PCT
@@ -70,6 +70,8 @@ class Helper_Pdf_Loader:
 
         if len(snapshot_rows) < 2:
             return None
+
+        snapshot_rows = sorted(snapshot_rows, key=lambda r: r["date"])
 
         return BookRawData(
             asin=asin,

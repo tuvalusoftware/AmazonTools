@@ -75,7 +75,8 @@ def main() -> None:
         signal.signal(sig, lambda s, f: _shutdown(scheduler, s, f))
 
     scheduler.start()
-    log.info("Scheduler started. Next run: %s", scheduler.get_job("scrape_bsr").next_run_time)
+    scrape_job = scheduler.get_job("scrape_bsr")
+    log.info("Scheduler started. Next run: %s", scrape_job.next_run_time if scrape_job else "unknown")
 
     try:
         while True:

@@ -16,6 +16,7 @@ Responsibilities:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
@@ -34,6 +35,24 @@ _SIGNIN_URL = "https://www.amazon.com/gp/sign-in.html"
 def _page_needs_login(page: Page) -> bool:
     url = page.url.lower()
     return "ap/signin" in url or "gp/sign-in" in url
+
+
+def _page_is_captcha(page: Page) -> bool:
+    """Return True when Amazon is showing a robot/CAPTCHA challenge page."""
+    url = page.url.lower()
+    if "validatecaptcha" in url or "captcha" in url:
+        return True
+    try:
+        content = page.content()
+        # Both the image-captcha and the "Sorry, we just need to make sure you're not a robot" interstitial
+        return (
+            "Type the characters you see in this image" in content
+            or "Enter the characters you see below" in content
+            or "robot" in content.lower()
+            and "captcha" in content.lower()
+        )
+    except Exception:
+        return False
 
 
 def _is_logged_in(page: Page) -> bool:
@@ -71,6 +90,7 @@ def _do_login(page: Page) -> bool:
         email_el = page.wait_for_selector(
             "#ap_email, input[name='email']", timeout=15_000
         )
+        assert email_el is not None
         email_el.fill(email)
         page.locator("#continue, input[type='submit']").first.click()
 
@@ -78,6 +98,7 @@ def _do_login(page: Page) -> bool:
         pwd_el = page.wait_for_selector(
             "#ap_password, input[name='password']", timeout=15_000
         )
+        assert pwd_el is not None
         pwd_el.fill(password)
         page.locator("#signInSubmit, input[type='submit']").first.click()
 
@@ -162,12 +183,14 @@ def login_session() -> bool:
                 email_el = page.wait_for_selector(
                     "#ap_email, input[name='email']", timeout=15_000
                 )
+                assert email_el is not None
                 email_el.fill(email)
                 page.locator("#continue, input[type='submit']").first.click()
 
                 pwd_el = page.wait_for_selector(
                     "#ap_password, input[name='password']", timeout=15_000
                 )
+                assert pwd_el is not None
                 pwd_el.fill(password)
                 page.locator("#signInSubmit, input[type='submit']").first.click()
                 page.wait_for_load_state("networkidle", timeout=20_000)
@@ -206,24 +229,60 @@ def login_session() -> bool:
         return False
 
 
-def fetch_page_html(url: str) -> str | None:
+def _save_captcha_screenshot(page: Page, url: str) -> None:
+    """Save a full-page screenshot when a CAPTCHA is detected.
+
+    Files are written to ``data/captcha/`` as
+    ``captcha_<YYYYMMDD_HHMMSS>_<slug>.png``.  The directory is created
+    automatically.  Any error during saving is logged but never raised so
+    that the CAPTCHA-handling flow is never interrupted.
+    """
+    import re as _re
+    from datetime import datetime as _dt
+
+    try:
+        out_dir = Path(settings.OUTPUT_DIR) / "captcha"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+        slug = _re.sub(r"[^a-zA-Z0-9]", "_", url)[-40:]
+        filename = f"captcha_{timestamp}_{slug}.png"
+        path = out_dir / filename
+
+        page.screenshot(path=str(path), full_page=True)
+        log.warning("fetch_page_html: CAPTCHA screenshot saved → %s", path)
+    except Exception as exc:
+        log.debug("fetch_page_html: failed to save CAPTCHA screenshot — %s", exc)
+
+
+def fetch_page_html(url: str, *, retries: int = 2, retry_delay: float = 3.0) -> str | None:
     """
     Return the fully-rendered HTML of *url* using a Playwright browser that
     carries the saved Amazon session.
 
     Flow:
       1. Load cookies from BROWSER_STATE_PATH (if the file exists).
-      2. Navigate to *url*.
+      2. Navigate to *url* (retried up to *retries* times on timeout/error).
       3. If Amazon redirects to sign-in, auto-login and retry.
       4. Persist the (possibly refreshed) session back to disk.
       5. Return page HTML, or None on unrecoverable error.
+
+    Parameters
+    ----------
+    retries:
+        Number of additional attempts after the first failure (default 2,
+        so up to 3 total attempts).
+    retry_delay:
+        Seconds to wait between attempts (default 3.0).
     """
+    import time
+
     state_path = Path(settings.BROWSER_STATE_PATH)
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=settings.BROWSER_HEADLESS)
 
-        ctx_opts: dict = {}
+        ctx_opts: dict[str, Any] = {}
         if state_path.exists():
             ctx_opts["storage_state"] = str(state_path)
             log.debug("Loaded browser state from %s", state_path)
@@ -231,10 +290,25 @@ def fetch_page_html(url: str) -> str | None:
         context: BrowserContext = browser.new_context(**ctx_opts)
         page: Page = context.new_page()
 
-        try:
-            page.goto(url, wait_until="networkidle", timeout=30_000)
-        except Exception as exc:
-            log.warning("fetch_page_html: navigation failed for %s — %s", url, exc)
+        last_exc: Exception | None = None
+        for attempt in range(1 + retries):
+            try:
+                page.goto(url, wait_until="networkidle", timeout=30_000)
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                log.warning(
+                    "fetch_page_html: navigation failed for %s (attempt %d/%d) — %s",
+                    url,
+                    attempt + 1,
+                    1 + retries,
+                    exc,
+                )
+                if attempt < retries:
+                    time.sleep(retry_delay)
+
+        if last_exc is not None:
             browser.close()
             return None
 
@@ -257,6 +331,21 @@ def fetch_page_html(url: str) -> str | None:
                 return None
 
         html: str = page.content()
+
+        # Detect CAPTCHA / robot-check interstitial — screenshot for inspection,
+        # then return None so the caller can retry instead of feeding a useless
+        # page to the LLM.
+        if _page_is_captcha(page):
+            _save_captcha_screenshot(page, url)
+            log.warning(
+                "fetch_page_html: Amazon served a CAPTCHA page for %s — "
+                "session may be rate-limited; returning None",
+                url,
+            )
+            _save_state(context)
+            browser.close()
+            return None
+
         _save_state(context)
         browser.close()
         return html

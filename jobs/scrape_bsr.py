@@ -11,6 +11,7 @@ Flow per ASIN:
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -71,55 +72,89 @@ def _parse_price(soup: BeautifulSoup) -> float:
     return 0.0
 
 
-def _scrape_bsr(asin: str) -> list[BestSellerRank]:
+def _scrape_bsr(
+    asin: str,
+    *,
+    retries: int | None = None,
+    retry_delay: float | None = None,
+) -> list[BestSellerRank]:
+    """Fetch and parse BSR entries for *asin*.
+
+    Retries up to *retries* extra times (default: ``settings.SCRAPE_RETRIES``)
+    when the page loads but the LLM returns no ranks — which typically means
+    Amazon served a CAPTCHA or an interstitial page.  Each retry waits
+    *retry_delay* seconds (default: ``settings.SCRAPE_RETRY_DELAY``) with a
+    small exponential factor so successive attempts space out more.
+    """
+    max_retries = retries if retries is not None else settings.SCRAPE_RETRIES
+    base_delay = retry_delay if retry_delay is not None else settings.SCRAPE_RETRY_DELAY
     url = settings.AMAZON_PRODUCT_URL.format(asin=asin)
-    log.debug("Fetching ASIN %s: %s", asin, url)
 
-    html = fetch_page_html(url)
-    if not html:
-        log.warning("Could not fetch HTML for ASIN %s", asin)
-        return []
+    for attempt in range(1 + max_retries):
+        if attempt > 0:
+            wait = base_delay * (2 ** (attempt - 1))
+            log.info(
+                "scrape_bsr: ASIN %s retry %d/%d — waiting %.0fs …",
+                asin, attempt, max_retries, wait,
+            )
+            time.sleep(wait)
 
-    soup = BeautifulSoup(html, "html.parser")
-    price = _parse_price(soup)
-    if price:
-        log.info("scrape_bsr: ASIN %s price → $%.2f", asin, price)
-    else:
-        log.warning("scrape_bsr: ASIN %s price not found", asin)
+        log.debug("Fetching ASIN %s (attempt %d): %s", asin, attempt + 1, url)
 
-    graph_cfg = build_graph_config()
-    graph = SmartScraperGraph(
-        prompt=_PROMPT,
-        source=html,
-        config=graph_cfg,
-    )
-
-    try:
-        result: dict = graph.run()
-    except Exception as exc:
-        log.warning("SmartScraperGraph failed for ASIN %s: %s", asin, exc)
-        return []
-
-    raw = result.get("ranks") if isinstance(result, dict) else None
-    if not raw:
-        log.debug("No ranks found in result for ASIN %s", asin)
-        return []
-
-    ranks: list[BestSellerRank] = []
-    for item in raw:
-        if not isinstance(item, dict):
+        html = fetch_page_html(url)
+        if not html:
+            log.warning("scrape_bsr: ASIN %s — could not fetch HTML (attempt %d)", asin, attempt + 1)
             continue
-        try:
-            ranks.append(BestSellerRank(
-                asin=asin,
-                rank=int(item.get("rank") or 0),
-                category=str(item.get("category") or ""),
-                price=price,
-            ))
-        except (TypeError, ValueError) as exc:
-            log.debug("Skipping malformed rank item: %s | %s", item, exc)
 
-    return ranks
+        soup = BeautifulSoup(html, "html.parser")
+        price = _parse_price(soup)
+        if price:
+            log.info("scrape_bsr: ASIN %s price → $%.2f", asin, price)
+        else:
+            log.warning("scrape_bsr: ASIN %s price not found", asin)
+
+        graph_cfg = build_graph_config()
+        graph = SmartScraperGraph(prompt=_PROMPT, source=html, config=graph_cfg)
+
+        try:
+            result = graph.run()
+        except Exception as exc:
+            log.warning("scrape_bsr: SmartScraperGraph failed for ASIN %s (attempt %d): %s", asin, attempt + 1, exc)
+            continue
+
+        raw = result.get("ranks") if isinstance(result, dict) else None
+        if not raw:
+            log.warning(
+                "scrape_bsr: ASIN %s — no ranks in LLM response (attempt %d/%d); "
+                "Amazon may have served a CAPTCHA or interstitial",
+                asin, attempt + 1, 1 + max_retries,
+            )
+            continue
+
+        ranks: list[BestSellerRank] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                ranks.append(BestSellerRank(
+                    asin=asin,
+                    rank=int(item.get("rank") or 0),
+                    category=str(item.get("category") or ""),
+                    price=price,
+                ))
+            except (TypeError, ValueError) as exc:
+                log.debug("Skipping malformed rank item: %s | %s", item, exc)
+
+        if ranks:
+            return ranks
+
+        log.warning(
+            "scrape_bsr: ASIN %s — parsed 0 valid ranks from LLM output (attempt %d/%d)",
+            asin, attempt + 1, 1 + max_retries,
+        )
+
+    log.error("scrape_bsr: ASIN %s — all %d attempt(s) exhausted, returning []", asin, 1 + max_retries)
+    return []
 
 
 def run() -> None:
@@ -136,9 +171,13 @@ def run() -> None:
     repo = BookRepo()
     total_saved = 0
 
-    for asin in asins:
+    for idx, asin in enumerate(asins):
+        if idx > 0:
+            log.debug("Waiting %.1fs before next ASIN …", settings.REQUEST_DELAY)
+            time.sleep(settings.REQUEST_DELAY)
+
         log.info("Scraping BSR for ASIN: %s", asin)
-        ranks = _scrape_bsr(asin)
+        ranks = _scrape_bsr(str(asin))
         log.info("ASIN %s → %d rank entries", asin, len(ranks))
 
         if ranks:

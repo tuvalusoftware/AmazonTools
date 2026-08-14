@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -102,7 +103,7 @@ class BookRepo:
     # Write operations                                                     #
     # ------------------------------------------------------------------ #
 
-    def save_bsr_snapshots(self, records: list[_BsrRecord]) -> int:
+    def save_bsr_snapshots(self, records: Sequence[_BsrRecord]) -> int:
         """Insert BSR snapshot records into bsr_snapshots.
 
         Accepts any objects with ``.asin``, ``.rank``, ``.category``,
@@ -239,31 +240,3 @@ class BookRepo:
             return dict(row) if row else None
         finally:
             conn.close()
-
-    def load_rank_history(self, asin: str, days: int = 7) -> list[dict[str, object]]:
-        """Return up to *days* daily rank data points for *asin*, oldest-first.
-
-        One entry per calendar day (lowest rank value wins when multiple
-        snapshots share the same date).
-        """
-        conn = self._get_conn()
-        try:
-            rows = conn.execute(
-                "SELECT DATE(scraped_at) AS date, rank"
-                " FROM bsr_snapshots"
-                " WHERE asin=?"
-                " ORDER BY scraped_at DESC"
-                " LIMIT ?",
-                (asin, days * 10),
-            ).fetchall()
-        finally:
-            conn.close()
-
-        seen: dict[str, int] = {}
-        for row in rows:
-            d, r = row["date"], row["rank"]
-            if d not in seen or r < seen[d]:
-                seen[d] = r
-
-        sorted_days = sorted(seen.keys())[-days:]
-        return [{"date": d, "rank": seen[d]} for d in sorted_days]

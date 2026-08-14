@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import NamedTuple, TypedDict
 
+from utils.Formula_calculator import Formula
 from utils.Repo_Snapshot import DailySnapshotRow
 from reports.Helper_Pdf_Loader import BookRawData
 
@@ -76,8 +77,8 @@ class Helper_Pdf_Metrics:
             rank = row["rank"]
             price = row["price"] if row["price"] else 0.0
 
-            estimated_units = max(1, round(10_000 / rank ** 0.70))
-            daily_profit = estimated_units * price * profit_pct
+            estimated_units = Formula.estimated_units_per_day(rank)
+            daily_profit = Formula.daily_profit(rank, price, profit_pct)
 
             dates.append(d)
             date_labels.append(d.strftime("%b %d"))

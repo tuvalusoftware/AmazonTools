@@ -12,7 +12,7 @@ class SmtpSettings(BaseModel):
     host: str = "smtp.gmail.com"
     port: int = 587
     user: str = ""
-    password: str = ""      # Gmail app password or SendGrid key
+    password: str = ""      # Gmail App Password
     from_addr: str = ""
 
 
@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     AMAZON_PRODUCT_URL: str = "https://www.amazon.com/dp/{asin}"
 
     REQUEST_DELAY: float = 2.0
+    SCRAPE_RETRIES: int = 2          # extra attempts when BSR result is empty
+    SCRAPE_RETRY_DELAY: float = 10.0 # seconds between retry attempts
 
     # ------------------------------------------------------------------ #
     # Storage                                                              #
@@ -78,8 +80,6 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     smtp: SmtpSettings = SmtpSettings()
 
-    # Comma-separated fallback recipients; overridden by per-book email in registry
-    EMAIL_TO: str = ""
     EMAIL_DIGEST_CRON: str = "30 23 * * *"  # daily 23:30 local time (after scrape)
 
     # ------------------------------------------------------------------ #
@@ -103,10 +103,6 @@ class Settings(BaseSettings):
     @property
     def asins(self) -> list[str]:
         return [a.strip() for a in self.TARGET_ASINS.split(",") if a.strip()]
-
-    @property
-    def email_recipients(self) -> list[str]:
-        return [e.strip() for e in self.EMAIL_TO.split(",") if e.strip()]
 
 
 settings = Settings()

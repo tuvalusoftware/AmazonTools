@@ -1,4 +1,8 @@
-.PHONY: install start run login
+.PHONY: install start run login test test-integration preview-digest
+
+# Catch-all rule so extra path arguments after a target are not treated as unknown targets.
+%:
+	@:
 
 VENV   = .venv
 PYTHON = $(VENV)/bin/python
@@ -21,3 +25,17 @@ run:
 # then save the session to data/browser_state.json for future runs.
 login:
 	$(PYTHON) -c "from utils.browser import login_session; import sys; sys.exit(0 if login_session() else 1)"
+
+# Run unit tests only (no network, no Amazon session required).
+test:
+	$(VENV)/bin/pytest tests/ -m "not integration" -v
+
+# Run integration tests against live Amazon.
+# Requires a valid session — run `make login` first if needed.
+# Usage:
+#   make test-integration                              — run all integration tests
+#   make test-integration tests/integration/test_scrape_bsr_integration.py
+_ITEST_ARGS := $(filter-out test-integration,$(MAKECMDGOALS))
+test-integration:
+	$(VENV)/bin/pytest $(if $(_ITEST_ARGS),$(_ITEST_ARGS),tests/integration/) -m integration -v -s
+

@@ -25,7 +25,7 @@ Packaged as a **Docker image**; data directory mounted as a named Docker volume.
 | `scripts/lookup_asin.py` | Helper called from the web handler — resolves ASIN from book title |
 | `jobs/scrape_bsr.py` | Existing BSR scraper — extend to query active books from SQLite; write results to `bsr_snapshots` table |
 | `jobs/email_digest.py` | New job — reads latest BSR snapshots from SQLite, builds HTML email, sends via SMTP |
-| `config.py` | Add `SMTP_*`, `EMAIL_TO`, `WEB_PORT`, `WEB_BASE_URL`, and `DB_PATH` settings |
+| `config.py` | Add `SMTP_*`, `WEB_PORT`, `WEB_BASE_URL`, and `DB_PATH` settings |
 | `main.py` | Start FastAPI server + register `email_digest` cron job + call `init_db()` at startup |
 | `utils/registry.py` | SQLite-backed registry: `BookRepo` class with `init_db`, `register_book`, `load_active_books`, `unsubscribe_book`, `unsubscribe_email` |
 | `templates/digest.html` | Jinja2 HTML email template (includes profit/price context + unsubscribe links) |
@@ -187,6 +187,8 @@ Each scrape run inserts N rows into `bsr_snapshots` — one per rank/category pa
 | C004A | `plan001.C004A_PriceScraping.todo.md` | Remove manual price field; scrape live price from Amazon product page after ASIN resolves | Not started |
 | C005 | `plan001.C005_Docker.todo.md` | Dockerfile + docker-compose.yml + named volume + .dockerignore | Not started |
 | C006 | `plan001.C006_PdfReportFromDb.todo.md` | PDF performance report generated from live `bsr_snapshots` + `tracked_books` data | Not started |
+| C007 | `plan001.C007_GmailSmtp.todo.md` | Switch email transport from SendGrid (trial expired) to Gmail SMTP + App Password | Not started |
+| T001 | `plan001.T001_UnitTests.todo.md` | Unit test plan — pytest suite covering all modules; no live I/O | Not started |
 
 ---
 
@@ -202,6 +204,8 @@ Each scrape run inserts N rows into `bsr_snapshots` — one per rank/category pa
 | `plan001.C004A_PriceScraping.todo.md` | Chapter 4A tasks — remove manual price field; scrape from Amazon |
 | `plan001.C005_Docker.todo.md` | Chapter 5 tasks — Docker image + compose + volume |
 | `plan001.C006_PdfReportFromDb.todo.md` | Chapter 6 tasks — PDF report from live DB data |
+| `plan001.C007_GmailSmtp.todo.md` | Chapter 7 tasks — switch to Gmail SMTP (SendGrid trial expired) |
+| `plan001.T001_UnitTests.todo.md` | Test chapter — pytest unit test plan for all modules |
 
 ---
 
