@@ -3,24 +3,25 @@ Job: scrape Amazon Best Seller Rank (BSR) for each target ASIN.
 
 Flow per ASIN:
   1. utils.browser.fetch_page_html() fetches the fully-rendered product page.
-  2. The HTML is passed to SmartScraperGraph so the LLM extracts BSR data.
-  3. Price is parsed inline from the same HTML (no extra HTTP request).
-  4. Results are persisted to the bsr_snapshots SQLite table via BookRepo.
+  2. extract_price_from_html() parses the price directly from the buybox DOM
+     (no LLM needed — uses aria-label selectors on .a-price elements).
+  3. extract_bsr_html_fragment() carves out the smallest HTML block that
+     contains the BSR entries (typically #detailBullets_feature_div, ~5 KB).
+  4. SmartScraperGraph feeds only that fragment to the LLM for BSR extraction.
+  5. Results are persisted to the bsr_snapshots SQLite table via BookRepo.
 """
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from bs4 import BeautifulSoup
 from scrapegraphai.graphs import SmartScraperGraph
 
 from config import settings, build_graph_config
-from utils.browser import fetch_page_html
+from utils.browser import extract_bsr_html_fragment, extract_price_from_html, fetch_page_html
 from utils.logger import get_logger
 from utils.registry import BookRepo
 
@@ -37,39 +38,16 @@ class BestSellerRank:
 
 
 _PROMPT = """
-Extract ALL Best Sellers Rank entries visible on this Amazon product page.
-Return a JSON object with a single key "ranks" containing an array.
-Each element must have:
-  - rank     : the integer rank number (e.g. 1523)
-  - category : the full category path string exactly as shown (e.g. "Books > Science")
+Extract ALL Best Sellers Rank entries visible in this Amazon product detail block.
+
+Return a JSON object with one key:
+  - "ranks" : an array of rank objects, each with:
+      - rank     : integer rank number (e.g. 1523)
+      - category : full category path string exactly as shown (e.g. "Books > Science")
 """
 
-_PRICE_SELECTORS = [
-    "span.a-offscreen",
-    "span#price_inside_buybox",
-    "span#kindle-price",
-    "span.a-color-price",
-]
-
-
-def _parse_price(soup: BeautifulSoup) -> float:
-    """Extract price from an already-parsed Amazon product page soup.
-
-    Tries selectors in priority order; strips currency symbols and whitespace
-    before casting to float.  Returns 0.0 if nothing parseable is found.
-    """
-    for selector in _PRICE_SELECTORS:
-        tag = soup.select_one(selector)
-        if not tag:
-            continue
-        cleaned = re.sub(r"[^\d.]", "", tag.get_text(strip=True))
-        try:
-            value = float(cleaned)
-        except ValueError:
-            continue
-        if value > 0:
-            return value
-    return 0.0
+# Top-level store categories we want to keep — sub-category ranks are ignored.
+_TOP_LEVEL_CATEGORIES = {"Kindle Store", "Audible Books & Originals"}
 
 
 def _scrape_bsr(
@@ -78,7 +56,10 @@ def _scrape_bsr(
     retries: int | None = None,
     retry_delay: float | None = None,
 ) -> list[BestSellerRank]:
-    """Fetch and parse BSR entries for *asin*.
+    """Fetch and parse the single top-level BSR entry for *asin*.
+
+    Only the first rank whose category is exactly ``"Kindle Store"`` or
+    ``"Audible Books & Originals"`` is kept; sub-category ranks are discarded.
 
     Retries up to *retries* extra times (default: ``settings.SCRAPE_RETRIES``)
     when the page loads but the LLM returns no ranks — which typically means
@@ -106,15 +87,20 @@ def _scrape_bsr(
             log.warning("scrape_bsr: ASIN %s — could not fetch HTML (attempt %d)", asin, attempt + 1)
             continue
 
-        soup = BeautifulSoup(html, "html.parser")
-        price = _parse_price(soup)
+        price = extract_price_from_html(html)
         if price:
-            log.info("scrape_bsr: ASIN %s price → $%.2f", asin, price)
+            log.info("scrape_bsr: ASIN %s price → $%.2f (via DOM)", asin, price)
         else:
-            log.warning("scrape_bsr: ASIN %s price not found", asin)
+            log.warning("scrape_bsr: ASIN %s price not found in DOM", asin)
+
+        fragment = extract_bsr_html_fragment(html)
+        log.debug(
+            "scrape_bsr: ASIN %s — feeding %d-char fragment to LLM (full HTML was %d chars)",
+            asin, len(fragment), len(html),
+        )
 
         graph_cfg = build_graph_config()
-        graph = SmartScraperGraph(prompt=_PROMPT, source=html, config=graph_cfg)
+        graph = SmartScraperGraph(prompt=_PROMPT, source=fragment, config=graph_cfg)
 
         try:
             result = graph.run()
@@ -136,12 +122,16 @@ def _scrape_bsr(
             if not isinstance(item, dict):
                 continue
             try:
+                cat = str(item.get("category") or "")
+                if cat not in _TOP_LEVEL_CATEGORIES:
+                    continue
                 ranks.append(BestSellerRank(
                     asin=asin,
                     rank=int(item.get("rank") or 0),
-                    category=str(item.get("category") or ""),
+                    category=cat,
                     price=price,
                 ))
+                break  # keep only the first top-level store rank
             except (TypeError, ValueError) as exc:
                 log.debug("Skipping malformed rank item: %s | %s", item, exc)
 
@@ -149,7 +139,8 @@ def _scrape_bsr(
             return ranks
 
         log.warning(
-            "scrape_bsr: ASIN %s — parsed 0 valid ranks from LLM output (attempt %d/%d)",
+            "scrape_bsr: ASIN %s — no top-level store rank found in LLM output (attempt %d/%d); "
+            "expected a 'Kindle Store' or 'Audible Books & Originals' entry",
             asin, attempt + 1, 1 + max_retries,
         )
 

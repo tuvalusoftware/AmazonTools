@@ -55,12 +55,13 @@ async def register(
     email: str = Form(...),
     title: str = Form(...),
     profit_pct: str = Form(...),
+    current_price: str = Form(...),
 ):
     # --- basic validation ---
     def bad(msg: str):
         return _render(request, "register.html", error=msg,
                        email=email, title=title,
-                       profit_pct=profit_pct)
+                       profit_pct=profit_pct, current_price=current_price)
 
     if "@" not in email or not email.strip():
         return bad("Please enter a valid email address.")
@@ -74,6 +75,13 @@ async def register(
     except (ValueError, TypeError):
         return bad("Profit % must be a number between 0 and 100.")
 
+    try:
+        price_val = float(current_price)
+        if price_val < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return bad("Book price must be a non-negative number.")
+
     # --- ASIN lookup ---
     try:
         _, asin = search_asin(title.strip())
@@ -85,14 +93,14 @@ async def register(
         log.exception("Unexpected error in search_asin: %s", exc)
         return bad("An error occurred while looking up the book. Please try again.")
 
-    # --- persist (price seeded to 0.0; populated on first scrape run) ---
+    # --- persist (price used as fallback when Amazon page price cannot be scraped) ---
     inserted = repo.register_book(
         {
             "email": email.strip(),
             "title": title.strip(),
             "asin": asin,
             "profit_pct": profit_val,
-            "current_price": 0.0,
+            "current_price": price_val,
         }
     )
 

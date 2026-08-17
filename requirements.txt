@@ -2,30 +2,30 @@
 APScheduler==3.10.4
 
 # ScrapeGraphAI — open-source library (SmartScraperGraph)
-scrapegraphai
+scrapegraphai==1.20.1
 
 # Playwright is required by scrapegraphai for JS rendering
 # After pip install, run:  playwright install
-playwright
+playwright==1.62.0
 
 # Settings / env loading
 pydantic-settings==2.3.4
 
 # HTML email templating
-Jinja2>=3.1
+Jinja2==3.1.6
 
 # Web UI (used by C004 Web UI chapter)
-fastapi
-uvicorn[standard]
-python-multipart
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+python-multipart==0.0.32
 
 # HTML parsing (used by scripts/lookup_asin.py)
-beautifulsoup4
+beautifulsoup4==4.15.0
 
 # PDF chart generation (used by reports/mock_charts.py)
-matplotlib
+matplotlib==3.11.1
 
 # Testing
-pytest
-pytest-asyncio
-httpx2
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx2==2.10.0

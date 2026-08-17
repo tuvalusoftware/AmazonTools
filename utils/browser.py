@@ -255,7 +255,148 @@ def _save_captcha_screenshot(page: Page, url: str) -> None:
         log.debug("fetch_page_html: failed to save CAPTCHA screenshot — %s", exc)
 
 
-def fetch_page_html(url: str, *, retries: int = 2, retry_delay: float = 3.0) -> str | None:
+def _save_debug_screenshot(page: Page, url: str, label: str = "debug") -> None:
+    """Save a full-page screenshot to ``data/debug/`` for diagnosis.
+
+    Files are named ``<label>_<YYYYMMDD_HHMMSS>_<slug>.png``.
+    Errors are logged at DEBUG level and never raised.
+    """
+    import re as _re
+    from datetime import datetime as _dt
+
+    try:
+        out_dir = Path(settings.OUTPUT_DIR) / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+        slug = _re.sub(r"[^a-zA-Z0-9]", "_", url)[-40:]
+        filename = f"{label}_{timestamp}_{slug}.png"
+        path = out_dir / filename
+
+        page.screenshot(path=str(path), full_page=True)
+        log.warning("fetch_page_html: debug screenshot saved → %s", path)
+    except Exception as exc:
+        log.debug("fetch_page_html: failed to save debug screenshot — %s", exc)
+
+
+def extract_bsr_html_fragment(html: str) -> str:
+    """Return the smallest HTML snippet that contains BSR + price data.
+
+    Strategy (tried in order, first match wins):
+    1. ``#detailBullets_feature_div`` — compact bullet-list block for most books.
+    2. ``#audibleProductDetails`` — Audible audiobook product detail table.
+    3. ``#productDetails_detailBullets_sections1`` — table-style variant for
+       physical/Kindle books.
+    4. Full HTML as fallback so the caller is never left with an empty string.
+
+    The fragment is typically 5–30 KB instead of the 300–600 KB full-page HTML,
+    which dramatically reduces LLM token usage and improves extraction accuracy.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    for selector in (
+        "#detailBullets_feature_div",
+        "#audibleProductDetails",
+        "#productDetails_detailBullets_sections1",
+    ):
+        node = soup.select_one(selector)
+        if node:
+            fragment = str(node)
+            log.debug(
+                "extract_bsr_html_fragment: using selector %r → %d chars",
+                selector,
+                len(fragment),
+            )
+            return fragment
+
+    log.debug("extract_bsr_html_fragment: no known selector matched — returning full HTML")
+    return html
+
+
+def extract_price_from_html(html: str) -> float:
+    """Parse the current Kindle/book price directly from the page HTML.
+
+    Tries several stable DOM patterns in order of specificity so it works
+    across Amazon's different buybox layouts (Kindle, paperback, hardcover):
+
+    1. ``[data-pricetopay-label]`` attribute — the canonical "price to pay"
+       element Amazon uses for its unified buybox.  The aria-label always
+       contains the dollar amount (e.g. ``"$14.99 with 50 percent savings"``).
+    2. ``span.apex-pricetopay-value[aria-label]`` — same data, CSS fallback.
+    3. ``span.ebook-price-value[aria-label]`` — older Kindle swatch price span.
+    4. ``span#price[aria-label]``, ``span#kindle-price[aria-label]`` — legacy
+       price block selectors still used on some book pages.
+    5. ``span.a-price:has(.a-price-whole)`` text — last-resort fallback that
+       reads the visible price digits directly from the DOM.
+
+    Returns 0.0 when no price can be found.
+    """
+    import re as _re
+    from bs4 import BeautifulSoup
+
+    _DOLLAR_RE = _re.compile(r"\$\s*([\d,]+\.?\d*)")
+
+    def _parse_dollar(text: str) -> float:
+        m = _DOLLAR_RE.search(text)
+        if m:
+            try:
+                return float(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+        return 0.0
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 1. data-pricetopay-label — most reliable on modern Amazon pages
+    node = soup.find(attrs={"data-pricetopay-label": True})  # type: ignore[call-overload]
+    if node:
+        label = str(node.get("aria-label") or "")
+        price = _parse_dollar(label)
+        if price:
+            log.debug("extract_price_from_html: found via data-pricetopay-label → $%.2f", price)
+            return price
+
+    # 2 & 3 — CSS class selectors with aria-label
+    for css in (
+        "span.apex-pricetopay-value",
+        "span.ebook-price-value",
+        "span#price",
+        "span#kindle-price",
+    ):
+        node = soup.select_one(css)
+        if node:
+            label = str(node.get("aria-label") or node.get_text())
+            price = _parse_dollar(label)
+            if price:
+                log.debug("extract_price_from_html: found via %r → $%.2f", css, price)
+                return price
+
+    # 4. Last-resort: read visible price digits from first .a-price block
+    price_node = soup.select_one("span.a-price")
+    if price_node:
+        whole = price_node.select_one(".a-price-whole")
+        frac = price_node.select_one(".a-price-fraction")
+        if whole:
+            try:
+                price = float(f"{whole.get_text().strip('.').strip()}.{frac.get_text().strip() if frac else '00'}")
+                if price:
+                    log.debug("extract_price_from_html: found via .a-price text → $%.2f", price)
+                    return price
+            except ValueError:
+                pass
+
+    log.debug("extract_price_from_html: no price found")
+    return 0.0
+
+
+def fetch_page_html(
+    url: str,
+    *,
+    retries: int = 2,
+    retry_delay: float = 3.0,
+) -> str | None:
     """
     Return the fully-rendered HTML of *url* using a Playwright browser that
     carries the saved Amazon session.

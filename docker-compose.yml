@@ -1,0 +1,15 @@
+services:
+  bsr-tracker:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:${WEB_PORT:-8080}"
+    env_file:
+      - .env
+    volumes:
+      - bsr_data:/app/data
+
+# SQLite database (tracker.db) and BSR snapshot folders both live in this volume.
+# Data persists across container restarts and image rebuilds.
+volumes:
+  bsr_data:

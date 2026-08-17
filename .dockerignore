@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+data/
+logs/
+.git/
+.cursor/
+plans/
+*.md

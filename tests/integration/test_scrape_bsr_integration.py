@@ -50,18 +50,10 @@ KNOWN_ASINS = [
     ("Atomic Habits", "B07RFSSYBH"),
     ("The Lean Startup", "B005MM7HY8"),
     ("Deep Work", "B0189PVAWY"),
+    ("The Whistler", "B0FVSXG3Z6"),
 ]
 
-_test_counter = {"n": 0}
 
-
-@pytest.fixture(autouse=True)
-def _throttle_between_tests() -> None:
-    """Insert a delay before every test except the first to avoid Amazon rate-limiting."""
-    if _test_counter["n"] > 0:
-        log.info("Waiting %.0fs before next ASIN request …", _INTER_TEST_DELAY)
-        time.sleep(_INTER_TEST_DELAY)
-    _test_counter["n"] += 1
 
 
 @pytest.mark.parametrize("title, asin", KNOWN_ASINS)
