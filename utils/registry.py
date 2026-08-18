@@ -25,12 +25,30 @@ CREATE TABLE IF NOT EXISTS tracked_books (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     email         TEXT    NOT NULL,
     title         TEXT    NOT NULL,
-    asin          TEXT    NOT NULL UNIQUE,
+    asin          TEXT    NOT NULL,
     profit_pct    REAL    NOT NULL,
     current_price REAL    NOT NULL,
     added_at      TEXT    NOT NULL,
-    active        INTEGER NOT NULL DEFAULT 1
+    active        INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (email, asin)
 );
+"""
+
+_MIGRATE_UNIQUE_ASIN_TO_EMAIL_ASIN = """
+ALTER TABLE tracked_books RENAME TO _tracked_books_old;
+CREATE TABLE tracked_books (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT    NOT NULL,
+    title         TEXT    NOT NULL,
+    asin          TEXT    NOT NULL,
+    profit_pct    REAL    NOT NULL,
+    current_price REAL    NOT NULL,
+    added_at      TEXT    NOT NULL,
+    active        INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (email, asin)
+);
+INSERT INTO tracked_books SELECT * FROM _tracked_books_old;
+DROP TABLE _tracked_books_old;
 """
 
 _CREATE_BSR_SNAPSHOTS_TABLE = """
@@ -96,6 +114,26 @@ class BookRepo:
                 conn.commit()
             except sqlite3.OperationalError:
                 pass  # column already exists
+
+            # Migrate old schema: UNIQUE(asin) → UNIQUE(email, asin)
+            # Detect by checking whether any unique index on tracked_books covers
+            # only the 'asin' column (the old single-column constraint).
+            needs_migration = False
+            for (_idx_seq, idx_name, unique, _origin, _partial) in conn.execute(
+                "PRAGMA index_list('tracked_books')"
+            ).fetchall():
+                if unique:
+                    cols = [
+                        r[2]
+                        for r in conn.execute(
+                            f"PRAGMA index_info('{idx_name}')"  # noqa: S608
+                        ).fetchall()
+                    ]
+                    if cols == ["asin"]:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                conn.executescript(_MIGRATE_UNIQUE_ASIN_TO_EMAIL_ASIN)
         finally:
             conn.close()
 
@@ -162,15 +200,16 @@ class BookRepo:
                     )
                 return True
             except sqlite3.IntegrityError:
-                # UNIQUE constraint on asin — check if inactive
+                # UNIQUE(email, asin) violation — check if the row is inactive
                 row = conn.execute(
-                    "SELECT active FROM tracked_books WHERE asin = ?", (book["asin"],)
+                    "SELECT active FROM tracked_books WHERE email = ? AND asin = ?",
+                    (book["email"], book["asin"]),
                 ).fetchone()
                 if row and row["active"] == 0:
                     with conn:
                         conn.execute(
-                            "UPDATE tracked_books SET active=1 WHERE asin=?",
-                            (book["asin"],),
+                            "UPDATE tracked_books SET active=1 WHERE email=? AND asin=?",
+                            (book["email"], book["asin"]),
                         )
                     return True
                 return False

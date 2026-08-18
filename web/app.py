@@ -4,8 +4,9 @@ FastAPI web application — Author BSR Tracker registration UI.
 Routes
 ------
 GET  /              — render registration form
-POST /register      — validate form, resolve ASIN, save to registry
-GET  /registered    — confirmation page (query param: title)
+POST /register      — validate form, enqueue background task, return pending page
+GET  /pending       — "request received" page (alias for the template)
+GET  /registered    — confirmation page (query param: title, kept for compat)
 GET  /unsubscribe   — handle unsubscribe links from email digest
                       ?email=<email>               → unsubscribe all
                       ?email=<email>&asin=<asin>   → unsubscribe one book
@@ -15,19 +16,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import BackgroundTasks, FastAPI, Form, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from scripts.lookup_asin import search_asin
 from utils.logger import get_logger
 from utils.registry import BookRepo
+from web.register_service import RegisterService
 
 log = get_logger(__name__)
 
 app = FastAPI(title="Author BSR Tracker")
 templates = Jinja2Templates(directory="web/templates")
-repo = BookRepo()
 
 
 # ------------------------------------------------------------------ #
@@ -52,6 +52,7 @@ async def index(request: Request):
 @app.post("/register", response_class=HTMLResponse)
 async def register(
     request: Request,
+    background_tasks: BackgroundTasks,
     email: str = Form(...),
     title: str = Form(...),
     profit_pct: str = Form(...),
@@ -82,36 +83,10 @@ async def register(
     except (ValueError, TypeError):
         return bad("Book price must be a non-negative number.")
 
-    # --- ASIN lookup ---
-    try:
-        _, asin = search_asin(title.strip())
-    except ValueError:
-        return bad(
-            "Could not resolve ASIN for that title. Try a more specific title."
-        )
-    except Exception as exc:
-        log.exception("Unexpected error in search_asin: %s", exc)
-        return bad("An error occurred while looking up the book. Please try again.")
-
-    # --- persist (price used as fallback when Amazon page price cannot be scraped) ---
-    inserted = repo.register_book(
-        {
-            "email": email.strip(),
-            "title": title.strip(),
-            "asin": asin,
-            "profit_pct": profit_val,
-            "current_price": price_val,
-        }
+    background_tasks.add_task(
+        RegisterService(email.strip(), title.strip(), profit_val, price_val).run
     )
-
-    if not inserted:
-        return bad("This book is already being tracked for your account.")
-
-    log.info("Registered book %r (ASIN %s) for %s", title, asin, email)
-    return RedirectResponse(
-        url=f"/registered?title={title.strip()}",
-        status_code=303,
-    )
+    return _render(request, "pending.html")
 
 
 @app.get("/registered", response_class=HTMLResponse)
@@ -121,6 +96,7 @@ async def registered(request: Request, title: str = ""):
 
 @app.get("/unsubscribe", response_class=HTMLResponse)
 async def unsubscribe(request: Request, email: str = "", asin: str = ""):
+    repo = BookRepo()
     if not email:
         return _render(request, "unsubscribe.html", mode="not_found", email=email)
 

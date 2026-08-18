@@ -13,10 +13,12 @@ Flow per ASIN:
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 from scrapegraphai.graphs import SmartScraperGraph
 
@@ -47,7 +49,27 @@ Return a JSON object with one key:
 """
 
 # Top-level store categories we want to keep — sub-category ranks are ignored.
-_TOP_LEVEL_CATEGORIES = {"Kindle Store", "Audible Books & Originals"}
+_TOP_LEVEL_CATEGORIES = {"Kindle Store", "Audible Books & Originals", "Books"}
+
+
+def _dump_fragment(asin: str, attempt: int, fragment: str, llm_result: object) -> None:
+    """Write the HTML fragment and LLM result to data/debug/ for diagnosis."""
+    try:
+        out_dir = Path(settings.OUTPUT_DIR) / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        slug = re.sub(r"[^a-zA-Z0-9]", "_", asin)
+        stem = f"bsr_fragment_{slug}_attempt{attempt}_{timestamp}"
+        html_path = out_dir / f"{stem}.html"
+        json_path = out_dir / f"{stem}_llm.txt"
+        html_path.write_text(fragment, encoding="utf-8")
+        json_path.write_text(str(llm_result), encoding="utf-8")
+        log.warning(
+            "scrape_bsr: debug fragment → %s  |  LLM output → %s",
+            html_path, json_path,
+        )
+    except Exception as exc:
+        log.debug("scrape_bsr: failed to dump debug fragment — %s", exc)
 
 
 def _scrape_bsr(
@@ -58,8 +80,9 @@ def _scrape_bsr(
 ) -> list[BestSellerRank]:
     """Fetch and parse the single top-level BSR entry for *asin*.
 
-    Only the first rank whose category is exactly ``"Kindle Store"`` or
-    ``"Audible Books & Originals"`` is kept; sub-category ranks are discarded.
+    Only the first rank whose category is exactly ``"Kindle Store"``,
+    ``"Audible Books & Originals"``, or ``"Books"`` is kept; sub-category
+    ranks are discarded.
 
     Retries up to *retries* extra times (default: ``settings.SCRAPE_RETRIES``)
     when the page loads but the LLM returns no ranks — which typically means
@@ -140,9 +163,10 @@ def _scrape_bsr(
 
         log.warning(
             "scrape_bsr: ASIN %s — no top-level store rank found in LLM output (attempt %d/%d); "
-            "expected a 'Kindle Store' or 'Audible Books & Originals' entry",
+            "expected a 'Kindle Store', 'Audible Books & Originals', or 'Books' entry",
             asin, attempt + 1, 1 + max_retries,
         )
+        _dump_fragment(asin, attempt + 1, fragment, result)
 
     log.error("scrape_bsr: ASIN %s — all %d attempt(s) exhausted, returning []", asin, 1 + max_retries)
     return []

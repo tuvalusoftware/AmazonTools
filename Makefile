@@ -1,4 +1,4 @@
-.PHONY: install start run login test test-integration preview-digest
+.PHONY: install start run run-job login test test-integration preview-digest reset-db
 
 # Catch-all rule so extra path arguments after a target are not treated as unknown targets.
 %:
@@ -21,6 +21,10 @@ start:
 run:
 	$(PYTHON) -c "from jobs.scrape_bsr import run; run()"
 
+# Interactively pick which job to run on demand (scrape, digest, or both).
+run-job:
+	$(PYTHON) -m scripts.run_job
+
 # Open a visible browser, auto-login (or complete OTP manually),
 # then save the session to data/browser_state.json for future runs.
 login:
@@ -38,4 +42,10 @@ test:
 _ITEST_ARGS := $(filter-out test-integration,$(MAKECMDGOALS))
 test-integration:
 	$(VENV)/bin/pytest $(if $(_ITEST_ARGS),$(_ITEST_ARGS),tests/integration/) -m integration -v -s
+
+# Drop and re-create all tables.  Requires explicit confirmation.
+#   make reset-db        — prompts error (safety guard)
+#   make reset-db -- --yes  — actually resets
+reset-db:
+	$(PYTHON) -m scripts.reset_db --yes
 

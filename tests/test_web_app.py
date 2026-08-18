@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,62 +20,48 @@ def client() -> TestClient:
 # ---------------------------------------------------------------------------
 
 
-def test_post_register_redirects_on_success(client: TestClient) -> None:
-    """Valid form + successful ASIN lookup + successful insert → 303 redirect."""
-    with (
-        patch("web.app.search_asin", return_value=("Atomic Habits", "0735211299")),
-        patch("web.app.repo") as mock_repo,
-    ):
-        mock_repo.register_book.return_value = True
-
+def test_post_register_returns_pending_on_valid_form(client: TestClient) -> None:
+    """Valid form data → 200 with pending page; RegisterService.run is called."""
+    with patch("web.register_service.RegisterService.run") as mock_run:
         response = client.post(
             "/register",
-            data={"email": "author@example.com", "title": "Atomic Habits", "profit_pct": "70"},
-        )
-
-    assert response.status_code == 303
-    assert "/registered" in response.headers["location"]
-
-
-def test_post_register_rerenders_on_asin_not_found(client: TestClient) -> None:
-    """search_asin raising ValueError → 200 with 'Could not resolve ASIN' message."""
-    with patch("web.app.search_asin", side_effect=ValueError("not found")):
-        response = client.post(
-            "/register",
-            data={"email": "author@example.com", "title": "Unknown Book", "profit_pct": "70"},
+            data={
+                "email": "author@example.com",
+                "title": "Atomic Habits",
+                "profit_pct": "70",
+                "current_price": "9.99",
+            },
         )
 
     assert response.status_code == 200
-    assert "Could not resolve ASIN" in response.text
+    assert "received" in response.text.lower()
+    mock_run.assert_called_once()
 
 
 def test_post_register_rerenders_on_validation_error(client: TestClient) -> None:
-    """profit_pct=-1 fails validation → 200 with an error message."""
+    """profit_pct=-1 fails validation → 200 with an error message, no task enqueued."""
     response = client.post(
         "/register",
-        data={"email": "author@example.com", "title": "Atomic Habits", "profit_pct": "-1"},
+        data={
+            "email": "author@example.com",
+            "title": "Atomic Habits",
+            "profit_pct": "-1",
+            "current_price": "9.99",
+        },
     )
 
     assert response.status_code == 200
-    assert "Error" in response.text or "error" in response.text.lower()
+    assert "error" in response.text.lower()
 
 
-def test_post_register_passes_price_zero_to_repo(client: TestClient) -> None:
-    """register_book is called with current_price=0.0 (C004A — no user price field)."""
-    with (
-        patch("web.app.search_asin", return_value=("Atomic Habits", "0735211299")),
-        patch("web.app.repo") as mock_repo,
-    ):
-        mock_repo.register_book.return_value = True
+def test_post_register_rerenders_on_missing_current_price(client: TestClient) -> None:
+    """Missing current_price field → 422 from FastAPI (required Form field)."""
+    response = client.post(
+        "/register",
+        data={"email": "author@example.com", "title": "Atomic Habits", "profit_pct": "70"},
+    )
 
-        client.post(
-            "/register",
-            data={"email": "author@example.com", "title": "Atomic Habits", "profit_pct": "70"},
-        )
-
-    mock_repo.register_book.assert_called_once()
-    call_kwargs = mock_repo.register_book.call_args[0][0]
-    assert call_kwargs["current_price"] == 0.0
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -98,10 +84,11 @@ def test_get_registered_shows_title(client: TestClient) -> None:
 
 def test_unsubscribe_book_mode(client: TestClient) -> None:
     """?email=…&asin=… with unsubscribe_book returning True → book-mode content."""
-    with patch("web.app.repo") as mock_repo:
-        mock_repo.unsubscribe_book.return_value = True
-        mock_repo.load_active_books.return_value = []
+    mock_repo = MagicMock()
+    mock_repo.unsubscribe_book.return_value = True
+    mock_repo.load_active_books.return_value = []
 
+    with patch("web.app.BookRepo", return_value=mock_repo):
         response = client.get(
             "/unsubscribe",
             params={"email": "author@example.com", "asin": "0735211299"},
@@ -113,9 +100,10 @@ def test_unsubscribe_book_mode(client: TestClient) -> None:
 
 def test_unsubscribe_all_mode(client: TestClient) -> None:
     """?email=… (no asin) with unsubscribe_email returning 2 → all-mode content."""
-    with patch("web.app.repo") as mock_repo:
-        mock_repo.unsubscribe_email.return_value = 2
+    mock_repo = MagicMock()
+    mock_repo.unsubscribe_email.return_value = 2
 
+    with patch("web.app.BookRepo", return_value=mock_repo):
         response = client.get(
             "/unsubscribe",
             params={"email": "author@example.com"},
@@ -126,11 +114,11 @@ def test_unsubscribe_all_mode(client: TestClient) -> None:
 
 
 def test_unsubscribe_not_found_mode(client: TestClient) -> None:
-    """unsubscribe_book returning False and unsubscribe_email returning 0 → not-found content."""
-    with patch("web.app.repo") as mock_repo:
-        mock_repo.unsubscribe_book.return_value = False
-        mock_repo.unsubscribe_email.return_value = 0
+    """unsubscribe_book returning False → not-found content."""
+    mock_repo = MagicMock()
+    mock_repo.unsubscribe_book.return_value = False
 
+    with patch("web.app.BookRepo", return_value=mock_repo):
         response = client.get(
             "/unsubscribe",
             params={"email": "author@example.com", "asin": "0735211299"},
@@ -138,3 +126,93 @@ def test_unsubscribe_not_found_mode(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "Nothing to unsubscribe" in response.text
+
+
+# ---------------------------------------------------------------------------
+# RegisterService.run — pipeline unit tests
+# ---------------------------------------------------------------------------
+
+
+def _make_service() -> "RegisterService":  # noqa: F821
+    from web.register_service import RegisterService
+
+    return RegisterService(
+        email="author@example.com",
+        title="Atomic Habits",
+        profit_val=70.0,
+        price_val=9.99,
+    )
+
+
+def test_register_service_run_success() -> None:
+    """T1 — ASIN found + new insert → confirmed email sent, no not-found/duplicate."""
+    svc = _make_service()
+    mock_repo = MagicMock()
+    mock_repo.register_book.return_value = True
+
+    with (
+        patch("web.register_service.SearchAsinService.search", return_value=("Atomic Habits", "B0123456")),
+        patch("web.register_service.BookRepo", return_value=mock_repo),
+        patch("web.register_service.send_email") as mock_send,
+    ):
+        svc.run()
+
+    mock_send.assert_called_once()
+    subject, _ = mock_send.call_args.args[1], mock_send.call_args.args[2]
+    assert "registered" in subject.lower()
+    mock_repo.register_book.assert_called_once()
+
+
+def test_register_service_run_not_found_value_error() -> None:
+    """T2 — SearchAsinService raises ValueError → not-found email sent, no DB write."""
+    svc = _make_service()
+    mock_repo = MagicMock()
+
+    with (
+        patch("web.register_service.SearchAsinService.search", side_effect=ValueError("no results")),
+        patch("web.register_service.BookRepo", return_value=mock_repo),
+        patch("web.register_service.send_email") as mock_send,
+    ):
+        svc.run()
+
+    mock_send.assert_called_once()
+    subject, _ = mock_send.call_args.args[1], mock_send.call_args.args[2]
+    assert "could not find" in subject.lower()
+    mock_repo.register_book.assert_not_called()
+
+
+def test_register_service_run_duplicate() -> None:
+    """T3 — register_book returns False → duplicate email sent, single DB call."""
+    svc = _make_service()
+    mock_repo = MagicMock()
+    mock_repo.register_book.return_value = False
+
+    with (
+        patch("web.register_service.SearchAsinService.search", return_value=("Atomic Habits", "B0123456")),
+        patch("web.register_service.BookRepo", return_value=mock_repo),
+        patch("web.register_service.send_email") as mock_send,
+    ):
+        svc.run()
+
+    mock_send.assert_called_once()
+    subject, _ = mock_send.call_args.args[1], mock_send.call_args.args[2]
+    assert "already tracking" in subject.lower()
+    mock_repo.register_book.assert_called_once()
+
+
+def test_register_service_run_unexpected_error_no_crash() -> None:
+    """T4 — SearchAsinService raises RuntimeError → not-found email sent, no crash."""
+    svc = _make_service()
+    mock_repo = MagicMock()
+
+    with (
+        patch("web.register_service.SearchAsinService.search", side_effect=RuntimeError("timeout")),
+        patch("web.register_service.BookRepo", return_value=mock_repo),
+        patch("web.register_service.send_email") as mock_send,
+    ):
+        svc.run()
+
+    mock_send.assert_called_once()
+    subject, _ = mock_send.call_args.args[1], mock_send.call_args.args[2]
+    assert "could not find" in subject.lower()
+    mock_repo.register_book.assert_not_called()

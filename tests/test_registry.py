@@ -29,6 +29,52 @@ def test_init_db_idempotent(tmp_db: BookRepo) -> None:
     tmp_db.init_db()
 
 
+def test_init_db_migrates_old_unique_asin_constraint(tmp_path: Path) -> None:
+    """init_db() must migrate a DB that has UNIQUE(asin) to UNIQUE(email, asin)."""
+    import sqlite3
+    from pathlib import Path
+
+    db_path = tmp_path / "old_schema.db"
+
+    # Seed an old-style DB with UNIQUE on asin only.
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE tracked_books (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            email         TEXT    NOT NULL,
+            title         TEXT    NOT NULL,
+            asin          TEXT    NOT NULL UNIQUE,
+            profit_pct    REAL    NOT NULL,
+            current_price REAL    NOT NULL,
+            added_at      TEXT    NOT NULL,
+            active        INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    conn.execute(
+        "INSERT INTO tracked_books (email,title,asin,profit_pct,current_price,added_at,active)"
+        " VALUES ('a@x.com','Book A','B001',0.5,9.99,'2026-01-01',1)"
+    )
+    conn.commit()
+    conn.close()
+
+    # Run migration via init_db.
+    repo = BookRepo(db_path=db_path)
+    repo.init_db()
+
+    # After migration: a second email can register the same ASIN.
+    result = repo.register_book({
+        "email": "b@x.com",
+        "title": "Book A",
+        "asin": "B001",
+        "profit_pct": 0.5,
+        "current_price": 9.99,
+    })
+    assert result is True
+    rows = repo.load_active_books()
+    emails = {r["email"] for r in rows}
+    assert emails == {"a@x.com", "b@x.com"}
+
+
 # ---------------------------------------------------------------------------
 # register_book
 # ---------------------------------------------------------------------------
@@ -74,6 +120,34 @@ def test_register_book_reactivates_inactive(
     assert len(rows) == 1
     assert rows[0]["asin"] == sample_book["asin"]
     assert rows[0]["active"] == 1
+
+
+def test_register_book_different_emails_same_asin(
+    tmp_db: BookRepo, sample_book: dict
+) -> None:
+    """Two different emails may track the same ASIN independently."""
+    book_b = {**sample_book, "email": "other@example.com"}
+
+    result_a = tmp_db.register_book(sample_book)
+    result_b = tmp_db.register_book(book_b)
+
+    assert result_a is True
+    assert result_b is True
+    rows = tmp_db.load_active_books()
+    assert len(rows) == 2
+    emails = {r["email"] for r in rows}
+    assert emails == {sample_book["email"], book_b["email"]}
+
+
+def test_register_book_duplicate_same_email_same_asin(
+    tmp_db: BookRepo, sample_book: dict
+) -> None:
+    """Same email + same ASIN twice returns False on the second call."""
+    tmp_db.register_book(sample_book)
+    result = tmp_db.register_book(sample_book)
+
+    assert result is False
+    assert len(tmp_db.load_active_books()) == 1
 
 
 # ---------------------------------------------------------------------------

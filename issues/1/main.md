@@ -1,83 +1,99 @@
-# Plan: End-to-end test for the Author BSR Tracker
+# Plan: End-to-end manual test checklist for the Author BSR Tracker
 
-> Issue: TBD — no GitHub remote configured for this repo yet. Once the repo is
-> created and pushed, create the GitHub issue and paste its URL here.
+> Issue: TBD — no GitHub remote configured for this repo yet. Once the repo
+> is created and pushed, create the GitHub issue and paste its URL here.
 
 ## Context
 
-The test suite already covers each piece of the pipeline in isolation:
+The automated test suite only covers each stage of the pipeline in
+isolation, with mocks/seed data replacing the real neighboring stage:
 
-- `tests/test_registry.py`, `tests/test_web_app.py` — unit tests for `BookRepo`
-  and the FastAPI routes (`web/app.py`), using an in-memory/temp SQLite DB and
-  mocked `search_asin`.
-- `tests/integration/test_lookup_asin_integration.py` — live ASIN resolution
-  against real Amazon search.
-- `tests/integration/test_scrape_bsr_integration.py` — live BSR/price scrape
-  for a fixed list of known ASINs (`_scrape_bsr`), not wired to the registry.
-- `tests/integration/test_email_digest_integration.py` — renders
-  `_build_digest_html` from seeded snapshot data and optionally sends it via
-  real Gmail SMTP (`test_send_digest_email_real`), but the seed data is
-  hand-written, not produced by an actual scrape.
-- `tests/test_pdf_service.py` — unit-level PDF generation from seeded data.
+- `tests/test_registry.py`, `tests/test_web_app.py` — unit tests for
+  `BookRepo` and the FastAPI routes (`web/app.py`), with `RegisterService.run`
+  and `search_asin` mocked out.
+- `tests/integration/test_lookup_asin_integration.py` — live ASIN
+  resolution only.
+- `tests/integration/test_scrape_bsr_integration.py` — live BSR/price
+  scrape for a fixed list of known ASINs (`_scrape_bsr`), never wired to the
+  registry or the web form.
+- `tests/integration/test_email_digest_integration.py` — renders and
+  optionally sends the digest from hand-seeded snapshot data, not from a
+  book that was actually registered and scraped.
+- `tests/test_pdf_service.py` — PDF generation with fully mocked data.
 
-None of these chain together. There is no test that drives the real user
-journey: register a book through the Web UI → resolve its ASIN for real →
-scrape its live BSR/price → persist it → generate a PDF report from that data
-→ send the email digest — and checks that each stage's output is exactly what
-the next stage consumes.
+**Registration flow (as of Issue 2)** is now async: `POST /register` returns
+`pending.html` in < 1 s; ASIN lookup + DB write + confirmation email run in a
+background thread via `RegisterService` (`web/register_service.py`). Three
+email outcomes:
+
+- **Found** → insert into `tracked_books` → "registration confirmed" email.
+- **Not found** → no DB write → "could not find book" email.
+- **Duplicate** → no insert → "already tracking" email.
+
+No test — automated or manual — walks the real user journey with a person
+watching each screen: open the browser → fill the registration form → see the
+pending page → wait for the confirmation email → wait for/trigger a scrape →
+check the SQLite data is right → trigger the digest job → open the received
+email → open the PDF attachment → click unsubscribe → confirm the book stops
+appearing.
 
 **Scope decision**:
 
-1. This issue adds ONE new end-to-end integration test module,
-   `tests/integration/test_e2e_flow.py`, that chains the real components
-   together against live Amazon + live Gmail SMTP. It reuses the existing
-   pieces (`web.app`, `scripts.lookup_asin`, `jobs.scrape_bsr`,
-   `jobs.email_digest`, PDF report generation, `utils.registry.BookRepo`) —
-   it does not rewrite them.
-2. It runs under the existing `integration` pytest marker
-   (`make test-integration`) — same session/SMTP prerequisites as today. It is
-   explicitly NOT a new test tier or CI-only suite.
-3. Out of scope: Docker/container-level e2e (hitting the app through
-   `docker compose up`), load/concurrency testing, and browser-driven UI
-   clicking (Selenium/Playwright against the rendered HTML pages) — the Web UI
-   layer is exercised via FastAPI's `TestClient`, not a real browser.
-4. Out of scope: creating the GitHub repo/issue for this. The user will handle
-   that separately; this plan only covers the local docs + the test code.
+1. This issue is a **manual test checklist**, not automated test code. The
+   deliverable is `issues/1/*.md` documents a human follows step-by-step,
+   ticking boxes and recording actual vs. expected results.
+2. It runs against the app started locally with `make start` (jobs
+   triggered on demand via `make run-job`, which interactively prompts for
+   scrape / digest / both) — real Amazon session, real SQLite file at
+   `data/tracker.db`, real Gmail SMTP. No test doubles.
+3. Out of scope: writing/extending `pytest` integration tests — those
+   already exist per-stage (see Context above) and are a separate,
+   automation-focused effort if wanted later.
+4. Out of scope: Docker-based execution (`docker compose up`) — this
+   checklist assumes a local `make start` run. A Docker variant can reuse
+   the same steps later if needed.
+5. Out of scope: creating the GitHub repo/issue for this. The user handles
+   that separately; this plan only covers the local checklist docs.
 
 ## Checklist kỹ thuật
 
-- [ ] [1. E2E fixture: isolated DB + app wiring](./01-fixture-and-app-wiring.md)
-- [ ] [2. Register flow (Web UI → ASIN resolve → persist)](./02-register-flow.md)
-- [ ] [3. Scrape flow (live BSR/price → snapshot persisted)](./03-scrape-flow.md)
-- [ ] [4. Report flow (PDF generation → email digest send)](./04-report-and-email-flow.md)
-- [ ] [5. Cleanup, skip conditions, and Makefile wiring](./05-cleanup-and-runner.md)
+- [ ] [1. Preconditions & environment setup](./01-preconditions.md)
+- [ ] [2. Register a book through the Web UI](./02-register-flow.md)
+- [ ] [3. BSR/price scrape run — verify data lands in SQLite](./03-scrape-flow.md)
+- [ ] [4. Email digest run — verify email + PDF attachment](./04-digest-and-pdf.md)
+- [ ] [5. Unsubscribe flow + negative/edge cases](./05-unsubscribe-and-edge-cases.md)
 
 ## Việc liên quan cần cân nhắc nhưng để ngoài phạm vi
 
-- Docker-level e2e (`docker compose up` + hit the container over HTTP) — would
-  need its own harness; tracked separately if wanted later.
-- Real browser UI automation (Playwright against the rendered pages) — the
-  existing scraping already uses Playwright for Amazon; adding it for our own
-  UI too is a separate, heavier investment.
-- CI wiring for this test (it needs a live Amazon session + Gmail App
-  Password secrets) — left as a manual `make test-integration` run for now.
+- Automated `pytest` e2e coverage chaining all stages together — a natural
+  follow-up once this manual checklist has been run once and is known to
+  pass, but a separate effort (different skillset: writing test code vs.
+  running the app).
+- Docker-level manual test (`docker compose up` + hit the container over
+  HTTP) — same steps could apply but env/volume setup differs enough to
+  warrant its own pass later.
+- Load/concurrency testing, real browser automation of our own UI
+  (Selenium/Playwright driving `web/app.py`'s pages) — not needed for a
+  manual checklist.
 
-## Test thủ công
+## Test thủ công (checklist tổng — chi tiết từng bước ở các file con)
 
-- [ ] Run `make login` to refresh the Amazon session, then
-      `make test-integration tests/integration/test_e2e_flow.py` — the test
-      registers a real book title (e.g. "Atomic Habits"), resolves its ASIN,
-      scrapes its live BSR, confirms a `bsr_snapshots` row was written, builds
-      a PDF report, builds the digest HTML, and (if `SMTP__PASSWORD` and
-      `SMTP__FROM_ADDR` are set) sends the digest to `SMTP__FROM_ADDR` for
-      manual inbox inspection.
-- [ ] Without SMTP credentials set, the same command still runs the
-      register → scrape → persist → PDF/HTML-build assertions and only skips
-      the actual send step.
+- [ ] Preconditions verified (session, `.env`, server running) — see
+      [01-preconditions.md](./01-preconditions.md)
+- [ ] Registration through the browser shows the pending page immediately
+      and confirmation email arrives within ~1 minute; book persists to SQLite —
+      see [02-register-flow.md](./02-register-flow.md)
+- [ ] A scrape run produces a BSR/price snapshot for the registered book —
+      see [03-scrape-flow.md](./03-scrape-flow.md)
+- [ ] A digest run sends an email with correct rank/price and a valid PDF
+      attachment — see [04-digest-and-pdf.md](./04-digest-and-pdf.md)
+- [ ] Unsubscribe links work and edge cases (bad title, duplicate
+      registration, no active books) behave as expected — see
+      [05-unsubscribe-and-edge-cases.md](./05-unsubscribe-and-edge-cases.md)
 
 ## Verification
 
-- `make test` — unit suite must stay green (no regressions from any shared
-  fixture changes in `tests/conftest.py`).
-- `make test-integration tests/integration/test_e2e_flow.py -v -s` — the new
-  e2e test itself, run after `make login`.
+- No automated command to run — this issue's "verification" is the tester
+  filling in actual-result columns/checkboxes in the sub-docs and reporting
+  any mismatch as a bug (with screenshot/log excerpt) rather than a CI
+  status.

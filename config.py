@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     smtp: SmtpSettings = SmtpSettings()
 
-    EMAIL_DIGEST_CRON: str = "30 23 * * *"  # daily 23:30 local time (after scrape)
+    EMAIL_DIGEST_CRON: str = "0 1 * * 1"   # weekly Monday 01:00 (interpret against TIMEZONE)
 
     # ------------------------------------------------------------------ #
     # Web UI                                                               #

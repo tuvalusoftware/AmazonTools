@@ -1,5 +1,5 @@
 """
-Integration test — search_asin against live Amazon.
+Integration test — SearchAsinService against live Amazon.
 
 Requirements before running
 ---------------------------
@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.lookup_asin import search_asin  # noqa: E402
+from scripts.Search_Asin_Service import SearchAsinService  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -43,20 +43,20 @@ pytestmark = pytest.mark.integration
 # decide whether Amazon returned a redirect/new edition.
 # ---------------------------------------------------------------------------
 KNOWN_BOOKS = [
-    ("Atomic Habits", "B07RFSSYBH"),
-    ("The Lean Startup", "B005MM7HY8"),
-    ("Deep Work", "B0189PVAWY"),
+    ("Theo of Golden: A Novel", "B0FTT3XSRZ"),
+    ("The Calamity Club: A Novel", "B0DZJ53SVW"),
+    ("Between Sisters", "B000FBFNT2")
 ]
 
 
 @pytest.mark.parametrize("title, expected_asin", KNOWN_BOOKS)
 def test_search_asin_real(title: str, expected_asin: str, caplog: LogCaptureFixture) -> None:
     """
-    Call search_asin with a real title and verify the returned ASIN looks valid.
+    Call SearchAsinService with a real title and verify the returned ASIN looks valid.
     Logs the actual ASIN so you can cross-check against Amazon manually.
     """
     with caplog.at_level(logging.INFO):
-        result_title, asin = search_asin(title)
+        result_title, asin = SearchAsinService(title).search()
 
     # --- structural assertions (always enforced) ---
     assert result_title == title, "returned title must match input"
