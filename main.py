@@ -65,7 +65,7 @@ def main() -> None:
         email_digest_run,
         trigger=CronTrigger.from_crontab(settings.EMAIL_DIGEST_CRON, timezone=settings.TIMEZONE),
         id="email_digest",
-        name="Send Daily BSR Digest Email",
+        name="Send Weekly BSR Digest Email",
         replace_existing=True,
         misfire_grace_time=300,
     )

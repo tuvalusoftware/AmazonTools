@@ -139,6 +139,14 @@ def test_load_daily_snapshots_days_window(tmp_db: BookRepo) -> None:
     result = _make_repo(tmp_db).load_daily_snapshots(asin, days=5)
 
     assert len(result) == 5
+    # Must be the 5 most recent days (oldest-first), not the 5 oldest.
+    assert [row["date"] for row in result] == [
+        "2026-08-06",
+        "2026-08-07",
+        "2026-08-08",
+        "2026-08-09",
+        "2026-08-10",
+    ]
 
 
 # ---------------------------------------------------------------------------

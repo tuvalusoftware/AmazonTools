@@ -178,7 +178,7 @@ def run() -> None:
         grouped[str(book["email"])].append(book)
 
     today = date.today().strftime("%Y-%m-%d")
-    subject = f"\U0001f4da Daily BSR Digest \u2014 {today}"
+    subject = f"\U0001f4da Weekly BSR Digest \u2014 {today}"
 
     pdf_filename = f"bsr_report_{today}.pdf"
     tmp_pdf: Path | None = None
@@ -188,11 +188,18 @@ def run() -> None:
         ) as tmp_f:
             tmp_pdf = Path(tmp_f.name)
 
-        Service_Pdf_GenFromAsin(asin_filter=None, output_path=tmp_pdf).run()
-        tmp_pdf = tmp_pdf.rename(tmp_pdf.with_name(pdf_filename))
-        log.info("PDF generated at %s", tmp_pdf)
+        generated = Service_Pdf_GenFromAsin(asin_filter=None, output_path=tmp_pdf).run()
+        if generated is None:
+            log.info("No books had enough snapshot data yet — sending email without PDF")
+            tmp_pdf.unlink(missing_ok=True)
+            tmp_pdf = None
+        else:
+            tmp_pdf = tmp_pdf.rename(tmp_pdf.with_name(pdf_filename))
+            log.info("PDF generated at %s", tmp_pdf)
     except Exception as exc:  # noqa: BLE001
         log.error("PDF generation failed — sending email without attachment: %s", exc)
+        if tmp_pdf is not None:
+            tmp_pdf.unlink(missing_ok=True)
         tmp_pdf = None
 
     authors_emailed = 0

@@ -56,13 +56,14 @@ class Service_Pdf_GenFromAsin:
         self._asin_filter = asin_filter
         self._output_path = output_path or OUTPUT_PATH
 
-    def run(self) -> Path:
+    def run(self) -> Path | None:
         """Build and write the PDF report.
 
         Returns
         -------
-        Path
-            Resolved path of the written PDF file.
+        Path | None
+            Resolved path of the written PDF file, or ``None`` if no book
+            had enough snapshot data (≥2 rows) to include a section.
         """
         repo = BookRepo()
 
@@ -73,6 +74,7 @@ class Service_Pdf_GenFromAsin:
 
         output = self._output_path.resolve()
 
+        included = 0
         with PdfPages(str(output)) as pdf:
             for asin in asins:
                 raw = Helper_Pdf_Loader(repo).load(asin, DAYS)
@@ -81,6 +83,12 @@ class Service_Pdf_GenFromAsin:
                     continue
                 metrics = Helper_Pdf_Metrics().compute(raw)
                 Helper_Pdf_Renderer(pdf).render_book(metrics)
+                included += 1
+
+        if included == 0:
+            output.unlink(missing_ok=True)
+            logger.warning("No books had enough snapshot data — no PDF written")
+            return None
 
         logger.info("PDF written to %s", output)
         return output

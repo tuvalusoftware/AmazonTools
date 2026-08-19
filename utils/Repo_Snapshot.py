@@ -70,14 +70,18 @@ class SnapshotRepo:
             if days and days > 0:
                 rows = conn.execute(
                     """
-                    SELECT DATE(scraped_at) AS date,
-                           MIN(rank)        AS rank,
-                           MAX(price)       AS price
-                    FROM   bsr_snapshots
-                    WHERE  asin = ?
-                    GROUP  BY DATE(scraped_at)
-                    ORDER  BY DATE(scraped_at) ASC
-                    LIMIT  ?
+                    SELECT date, rank, price
+                    FROM (
+                        SELECT DATE(scraped_at) AS date,
+                               MIN(rank)        AS rank,
+                               MAX(price)       AS price
+                        FROM   bsr_snapshots
+                        WHERE  asin = ?
+                        GROUP  BY DATE(scraped_at)
+                        ORDER  BY DATE(scraped_at) DESC
+                        LIMIT  ?
+                    )
+                    ORDER BY date ASC
                     """,
                     (asin, days),
                 ).fetchall()

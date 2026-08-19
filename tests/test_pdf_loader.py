@@ -97,7 +97,7 @@ def test_load_uses_profit_pct_from_tracked_books() -> None:
 
 
 def test_load_falls_back_to_default_profit_pct() -> None:
-    """When tracked_books has profit_pct=0 (falsy), fallback to 0.70."""
+    """When tracked_books has profit_pct=0 (falsy), fallback to 70.0 (raw percent, matches Formula's contract)."""
     rows = [_make_snapshot_row(f"2026-08-0{i}") for i in range(1, 3)]
 
     loader, _ = _make_loader(
@@ -110,7 +110,7 @@ def test_load_falls_back_to_default_profit_pct() -> None:
         result = loader.load("B000000004", days=30)
 
     assert result is not None
-    assert result["profit_pct"] == 0.70
+    assert result["profit_pct"] == 70.0
 
 
 # ---------------------------------------------------------------------------

@@ -12,3 +12,4 @@ dist/
 build/
 .DS_Store
 reports/mock_charts.pdf
+tests/integration/pdf_gen_preview/

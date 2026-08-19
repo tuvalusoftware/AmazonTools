@@ -7,6 +7,8 @@ Helper_Pdf_Renderer is the consumer; it does not own these types.
 
 from __future__ import annotations
 
+import itertools
+import textwrap
 from typing import Any
 
 import matplotlib.gridspec as gridspec
@@ -17,62 +19,36 @@ from reports.Helper_Pdf_Metrics import BookMetricsData, MonthlyRow  # noqa: F401
 __all__ = ["Helper_Pdf_Renderer", "BookMetricsData", "MonthlyRow"]
 
 FIGSIZE = (9, 7)
-CHART_HEIGHT_RATIO = [62, 38]
 
-_DESCRIPTIONS_STATIC: dict[str, tuple[str, str, str, str]] = {
+_CAPTIONS: dict[str, str] = {
     "daily_units": (
-        "What it shows",
-        "Estimated number of copies sold each day over the past 30 days.\n"
-        "Each bar represents a single calendar day.\n"
-        "Spikes typically correspond to promotions, ads, or organic ranking improvements.",
-        "Data source & formula",
-        "estimated_units  =  round( 10,000 / BSR^0.70 )\n"
-        "                    (standard Amazon BSR-to-sales power-law approximation)\n"
-        "BSR is scraped daily from the Amazon product page.",
+        "Estimated copies sold each day, derived from the daily BSR "
+        "(see Methodology on the cover page). Spikes usually track promotions, ads, "
+        "or organic ranking improvements."
+    ),
+    "daily_profit": (
+        "Estimated gross royalty profit earned each day. Useful for spotting "
+        "high-revenue days and correlating them with marketing activity."
     ),
     "cumulative_units": (
-        "What it shows",
-        "Running total of estimated copies sold from day 1 through the current day.\n"
-        "A steadily rising slope indicates sustained organic sales momentum.\n"
-        "Flattening segments mark low-BSR (high-rank) days with few sales.",
-        "Data source & formula",
-        "cumulative_units[i]  =  Σ  estimated_units[0 … i]\n"
-        "estimated_units[j]   =  round( 10,000 / BSR[j]^0.70 )",
+        "Running total of estimated units sold, recomputed from zero over this window "
+        "(not the all-time total). A steadily rising slope indicates sustained organic "
+        "sales momentum."
     ),
     "cumulative_profit": (
-        "What it shows",
-        "Running total of estimated profit accumulated day by day over the 30-day window.\n"
-        "Use this to track whether the monthly revenue target is on pace.",
-        "Data source & formula",
-        "cumulative_profit[i]  =  Σ  daily_profit[0 … i]\n"
-        "                       =  Σ  ( estimated_units[j] × price × royalty_pct )  for j in 0…i",
+        "Running total of estimated profit, recomputed from zero over this window "
+        "(not the all-time total). Use this to track whether the monthly revenue "
+        "target is on pace."
     ),
     "monthly_table": (
-        "What it shows",
-        "All complete calendar months with data (first-to-first).\n"
-        "The current partial month is excluded — each row spans exactly one full month.",
-        "Data source & formula",
-        "BSR scraped daily  →  estimated_units  →  profit per day  →  summed by month\n"
-        "Avg Daily Profit  =  Total Monthly Profit  ÷  days with data in that month",
+        "All complete calendar months with data (first-to-first). The current "
+        "partial month is excluded — each row spans exactly one full month."
     ),
 }
 
 
-def _build_daily_profit_description(price: float, profit_pct: float) -> tuple[str, str, str, str]:
-    return (
-        "What it shows",
-        "Estimated gross royalty profit earned each day, derived from the daily BSR.\n"
-        "Useful for identifying high-revenue days and correlating them with marketing activity.",
-        "Data source & formula",
-        "estimated_units  =  round( 10,000 / BSR^0.70 )\n"
-        "                    (standard Amazon BSR-to-sales power-law approximation)\n"
-        f"daily_profit      =  estimated_units  ×  ${price:.2f}  ×  {int(profit_pct * 100)}%\n"
-        "Price and royalty % are entered by the user in the tracker dashboard.",
-    )
-
-
 class Helper_Pdf_Renderer:
-    """Renders one book's 5-page PDF section from pre-computed metrics.
+    """Renders one book's 4-page PDF section (cover, 2 grouped chart pages, table) from pre-computed metrics.
 
     Parameters
     ----------
@@ -93,67 +69,136 @@ class Helper_Pdf_Renderer:
         for spine in ("top", "right"):
             ax.spines[spine].set_visible(False)
 
-    @staticmethod
-    def _new_page(title: str, height_ratios: list[int] | None = None) -> tuple[Any, Any, Any]:
-        fig = plt.figure(figsize=FIGSIZE)
-        gs = gridspec.GridSpec(
-            2, 1,
-            height_ratios=height_ratios or CHART_HEIGHT_RATIO,
-            hspace=0.30,
-            figure=fig,
-        )
-        gs.update(left=0.10, right=0.97, top=0.93, bottom=0.04)
-        ax_chart = fig.add_subplot(gs[0])
-        ax_desc = fig.add_subplot(gs[1])
-        fig.suptitle(title, fontsize=12, fontweight="bold", y=0.98)
-        return fig, ax_chart, ax_desc
-
     def _save_page(self, fig: Any) -> None:
         self._pdf.savefig(fig)
         plt.close(fig)
 
     @staticmethod
-    def _sparse_labels(dates: list, labels: list, step: int = 2) -> tuple[list, list]:
+    def _sparse_labels(
+        dates: list, labels: list, step: int = 2, max_ticks: int = 20
+    ) -> tuple[list, list]:
+        """Subsample to every *step*-th date, widening the step further if that
+        would still leave more than *max_ticks* labels (long tracking windows
+        would otherwise render hundreds of overlapping x-axis ticks)."""
+        if step * max_ticks < len(dates):
+            step = -(-len(dates) // max_ticks)  # ceil division
         return dates[::step], labels[::step]
 
     @staticmethod
-    def _add_description(
-        ax_desc: Any,
-        key: str,
-        price: float = 0.0,
-        profit_pct: float = 0.70,
+    def _add_caption(ax_caption: Any, key: str) -> None:
+        ax_caption.axis("off")
+        ax_caption.text(
+            0.0, 0.5, _CAPTIONS[key],
+            transform=ax_caption.transAxes,
+            fontsize=7.5, color="#444444", va="center", ha="left",
+            wrap=True,
+        )
+
+    # ── Cover page ─────────────────────────────────────────────────────────────
+
+    def _render_cover(self, title: str, days: int, price: float, profit_pct: float) -> None:
+        fig = plt.figure(figsize=FIGSIZE)
+        # Bottom margin so the methodology block (the lowest content, sized
+        # dynamically by line-wrapped text) never touches the page edge.
+        ax = fig.add_axes((0, 0.05, 1, 0.95))
+        ax.axis("off")
+
+        # Cap the title at 3 wrapped lines (long-enough titles are truncated with an
+        # ellipsis) so the fixed vertical layout below it never overlaps, regardless
+        # of how long the source title string is.
+        title_lines = textwrap.wrap(title, width=38) or [title]
+        MAX_TITLE_LINES = 3
+        if len(title_lines) > MAX_TITLE_LINES:
+            title_lines = title_lines[:MAX_TITLE_LINES]
+            title_lines[-1] = title_lines[-1].rstrip()[:35].rstrip() + "…"
+        wrapped_title = "\n".join(title_lines)
+
+        ax.text(0.5, 0.90, wrapped_title, transform=ax.transAxes,
+                 fontsize=20, fontweight="bold", color="#1a3a5c",
+                 ha="center", va="top", linespacing=1.3)
+        ax.text(0.5, 0.62, "BSR Performance Report", transform=ax.transAxes,
+                 fontsize=13, color="#2c5f8a", ha="center", va="top")
+        ax.text(0.5, 0.57, f"Rolling {days}-day window", transform=ax.transAxes,
+                 fontsize=9.5, color="#666666", ha="center", va="top")
+
+        ax.text(0.08, 0.47, "About this report", transform=ax.transAxes,
+                 fontsize=11, fontweight="bold", color="#1a3a5c", va="top")
+        about = (
+            "This report tracks estimated daily sales and profit for this title, based on its "
+            "Amazon Best Sellers Rank (BSR). It covers the trend over the last "
+            f"{days} days plus a month-by-month history, so you can spot momentum shifts and "
+            "check whether revenue is on pace."
+        )
+        ax.text(0.08, 0.42, "\n".join(textwrap.wrap(about, width=88)), transform=ax.transAxes,
+                 fontsize=9, color="#333333", va="top", linespacing=1.5)
+
+        ax.text(0.08, 0.24, "Methodology", transform=ax.transAxes,
+                 fontsize=11, fontweight="bold", color="#1a3a5c", va="top")
+        methodology_intro = (
+            "BSR is scraped once per day from the Amazon product page. Sales and profit are "
+            "estimated with the standard BSR-to-sales power-law approximation:"
+        )
+        methodology_outro = (
+            "Price and royalty % are as entered in the tracker dashboard. These are estimates "
+            "only — actual figures reported by Amazon may differ."
+        )
+        methodology = (
+            "\n".join(textwrap.wrap(methodology_intro, width=95)) + "\n\n"
+            "    estimated_units  =  round( 10,000 / BSR^0.70 )\n"
+            f"    daily_profit     =  estimated_units  ×  ${price:.2f}  ×  {int(profit_pct)}%\n\n"
+            + "\n".join(textwrap.wrap(methodology_outro, width=95))
+        )
+        ax.text(0.08, 0.19, methodology, transform=ax.transAxes,
+                 fontsize=8.5, color="#333333", va="top", family="monospace", linespacing=1.6)
+
+        self._save_page(fig)
+
+    # ── Chart pages ────────────────────────────────────────────────────────────
+
+    def _render_chart_pair_page(
+        self,
+        page_title: str,
+        charts: list[tuple[str, str, Any]],
+        tick_dates: list,
+        tick_labels: list,
     ) -> None:
-        if key == "daily_profit":
-            what_head, what_body, how_head, how_body = _build_daily_profit_description(price, profit_pct)
-        else:
-            what_head, what_body, how_head, how_body = _DESCRIPTIONS_STATIC[key]
+        """Render two stacked charts (each with a caption strip) on one page.
 
-        ax_desc.axis("off")
-        ax_desc.set_facecolor("#f5f7fa")
+        Parameters
+        ----------
+        charts:
+            List of ``(caption_key, ylabel, plot_fn)`` tuples, where ``plot_fn(ax)``
+            draws the chart onto the given axes.
+        """
+        fig = plt.figure(figsize=FIGSIZE)
+        gs = gridspec.GridSpec(
+            4, 1,
+            height_ratios=[42, 8, 42, 8],
+            hspace=0.55,
+            figure=fig,
+        )
+        gs.update(left=0.10, right=0.97, top=0.93, bottom=0.05)
+        fig.suptitle(page_title, fontsize=12, fontweight="bold", y=0.98)
 
-        x = 0.02
-        y = 0.95
+        for i, (caption_key, ylabel, plot_fn) in enumerate(charts):
+            ax_chart = fig.add_subplot(gs[i * 2])
+            ax_caption = fig.add_subplot(gs[i * 2 + 1])
 
-        LINE_H = 0.13
-        HEAD_GAP = 0.14
+            plot_fn(ax_chart)
+            ax_chart.set_ylabel(ylabel, fontsize=8)
+            ax_chart.set_xticks(tick_dates)
+            ax_chart.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
+            ax_chart.grid(axis="y", linestyle="--", alpha=0.4)
+            self._style_ax(ax_chart)
 
-        ax_desc.text(x, y, what_head, transform=ax_desc.transAxes,
-                     fontsize=8.5, fontweight="bold", color="#1a3a5c", va="top")
-        y -= HEAD_GAP
-        ax_desc.text(x, y, what_body, transform=ax_desc.transAxes,
-                     fontsize=8, color="#333333", va="top", linespacing=1.4)
-        y -= LINE_H * (what_body.count("\n") + 1) + 0.03
+            self._add_caption(ax_caption, caption_key)
 
-        ax_desc.text(x, y, how_head, transform=ax_desc.transAxes,
-                     fontsize=8.5, fontweight="bold", color="#1a3a5c", va="top")
-        y -= HEAD_GAP
-        ax_desc.text(x, y, how_body, transform=ax_desc.transAxes,
-                     fontsize=8, color="#333333", va="top", family="monospace", linespacing=1.4)
+        self._save_page(fig)
 
     # ── Public rendering method ───────────────────────────────────────────────
 
     def render_book(self, data: BookMetricsData) -> None:
-        """Render all 5 pages for a single book into *self._pdf*.
+        """Render one book's section (cover + grouped chart pages + table) into *self._pdf*.
 
         Parameters
         ----------
@@ -166,8 +211,6 @@ class Helper_Pdf_Renderer:
         date_labels = data["date_labels"]
         units_per_day = data["units_per_day"]
         profit_per_day = data["profit_per_day"]
-        cumulative_units = data["cumulative_units"]
-        cumulative_profit = data["cumulative_profit"]
         monthly_rows: list[MonthlyRow] = data["monthly_rows"]
 
         # Derive representative price from the latest snapshot with a non-zero price
@@ -177,64 +220,94 @@ class Helper_Pdf_Renderer:
                 latest_price = float(row["price"])
                 break
 
-        tick_dates, tick_labels = self._sparse_labels(dates, date_labels, step=2)
+        # Both chart pages become unreadable once the tracking window runs into
+        # the hundreds of days (daily bars too thin to see; cumulative totals
+        # dominated by early history) — cap both to the most recent stretch.
+        # The cumulative totals are recomputed from zero over that window
+        # (older days are ignored entirely, not just clipped off the plot).
+        DAILY_CHART_WINDOW_DAYS = 30
+        windowed = len(dates) > DAILY_CHART_WINDOW_DAYS
+        daily_dates = dates[-DAILY_CHART_WINDOW_DAYS:]
+        daily_units = units_per_day[-DAILY_CHART_WINDOW_DAYS:]
+        daily_profit = profit_per_day[-DAILY_CHART_WINDOW_DAYS:]
+        daily_tick_dates, daily_tick_labels = self._sparse_labels(
+            daily_dates, date_labels[-DAILY_CHART_WINDOW_DAYS:], step=2
+        )
+        daily_page_title = (
+            "Daily Sales & Profit"
+            if not windowed
+            else f"Daily Sales & Profit (Last {DAILY_CHART_WINDOW_DAYS} Days)"
+        )
+        windowed_cumulative_units = list(itertools.accumulate(daily_units))
+        windowed_cumulative_profit = list(itertools.accumulate(daily_profit))
+        cumulative_page_title = (
+            "Cumulative Sales & Profit"
+            if not windowed
+            else f"Cumulative Sales & Profit (Last {DAILY_CHART_WINDOW_DAYS} Days)"
+        )
+
+        # Chart/table page headers are a single suptitle line (unlike the cover,
+        # which wraps the title over up to 3 lines) — long titles must be
+        # truncated here or they overflow past the page width.
+        MAX_HEADER_TITLE_LEN = 40
+        short_title = title if len(title) <= MAX_HEADER_TITLE_LEN else (
+            title[: MAX_HEADER_TITLE_LEN - 1].rstrip() + "…"
+        )
 
         def _prefix(chart_title: str) -> str:
-            return f"[{title}] — {chart_title}"
+            return f"[{short_title}] — {chart_title}"
 
-        # Page 1 — Estimated Books Sold per Day
-        fig, ax, ax_desc = self._new_page(_prefix("Estimated Books Sold per Day"))
-        ax.bar(dates, units_per_day, color="#4a90d9")
-        ax.set_ylabel("Estimated Units Sold", fontsize=8)
-        ax.set_xticks(tick_dates)
-        ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
-        ax.grid(axis="y", linestyle="--", alpha=0.4)
-        self._style_ax(ax)
-        self._add_description(ax_desc, "daily_units", price=latest_price, profit_pct=price_pct)
-        self._save_page(fig)
+        self._render_cover(title, days=len(dates), price=latest_price, profit_pct=price_pct)
 
-        # Page 2 — Estimated Daily Profit
-        fig, ax, ax_desc = self._new_page(_prefix("Estimated Daily Profit (USD)"))
-        ax.bar(dates, profit_per_day, color="#e07b39")
-        ax.set_ylabel("Profit (USD)", fontsize=8)
-        ax.set_xticks(tick_dates)
-        ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
-        ax.grid(axis="y", linestyle="--", alpha=0.4)
-        self._style_ax(ax)
-        self._add_description(ax_desc, "daily_profit", price=latest_price, profit_pct=price_pct)
-        self._save_page(fig)
+        # Page — Daily Units Sold + Daily Profit
+        self._render_chart_pair_page(
+            _prefix(daily_page_title),
+            charts=[
+                (
+                    "daily_units", "Estimated Units Sold",
+                    lambda ax: ax.bar(daily_dates, daily_units, color="#4a90d9"),
+                ),
+                (
+                    "daily_profit", "Profit (USD)",
+                    lambda ax: ax.bar(daily_dates, daily_profit, color="#e07b39"),
+                ),
+            ],
+            tick_dates=daily_tick_dates,
+            tick_labels=daily_tick_labels,
+        )
 
-        # Page 3 — Cumulative Estimated Profit
-        fig, ax, ax_desc = self._new_page(_prefix("Cumulative Estimated Profit (USD)"))
-        ax.plot(dates, cumulative_profit, marker="o", markersize=3, color="green", linewidth=1.4)
-        ax.fill_between(dates, cumulative_profit, alpha=0.12, color="green")
-        ax.set_ylabel("Total Profit (USD)", fontsize=8)
-        ax.set_xticks(tick_dates)
-        ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
-        ax.grid(linestyle="--", alpha=0.4)
-        self._style_ax(ax)
-        self._add_description(ax_desc, "cumulative_profit", price=latest_price, profit_pct=price_pct)
-        self._save_page(fig)
+        # Page — Cumulative Units + Cumulative Profit
+        self._render_chart_pair_page(
+            _prefix(cumulative_page_title),
+            charts=[
+                (
+                    "cumulative_units", "Total Units Sold",
+                    lambda ax: (
+                        ax.plot(daily_dates, windowed_cumulative_units, marker="o", markersize=3,
+                                color="#4a90d9", linewidth=1.4),
+                        ax.fill_between(daily_dates, windowed_cumulative_units, alpha=0.12, color="#4a90d9"),
+                    ),
+                ),
+                (
+                    "cumulative_profit", "Total Profit (USD)",
+                    lambda ax: (
+                        ax.plot(daily_dates, windowed_cumulative_profit, marker="o", markersize=3,
+                                color="green", linewidth=1.4),
+                        ax.fill_between(daily_dates, windowed_cumulative_profit, alpha=0.12, color="green"),
+                    ),
+                ),
+            ],
+            tick_dates=daily_tick_dates,
+            tick_labels=daily_tick_labels,
+        )
 
-        # Page 4 — Cumulative Estimated Books Sold
-        fig, ax, ax_desc = self._new_page(_prefix("Cumulative Estimated Books Sold"))
-        ax.plot(dates, cumulative_units, marker="o", markersize=3, color="#4a90d9", linewidth=1.4)
-        ax.fill_between(dates, cumulative_units, alpha=0.12, color="#4a90d9")
-        ax.set_ylabel("Total Units Sold", fontsize=8)
-        ax.set_xticks(tick_dates)
-        ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
-        ax.grid(linestyle="--", alpha=0.4)
-        self._style_ax(ax)
-        self._add_description(ax_desc, "cumulative_units", price=latest_price, profit_pct=price_pct)
-        self._save_page(fig)
-
-        # Page 5 — Monthly Profit Summary
+        # Page — Monthly Profit Summary
         col_headers = ["Month", "Est. Units Sold", "Total Profit", "Avg Daily Profit", "Days"]
         fig = plt.figure(figsize=FIGSIZE)
-        gs = gridspec.GridSpec(2, 1, height_ratios=[58, 42], hspace=0.08, figure=fig)
-        gs.update(left=0.04, right=0.97, top=0.93, bottom=0.04)
+        gs = gridspec.GridSpec(2, 1, height_ratios=[85, 15], hspace=0.12, figure=fig)
+        gs.update(left=0.04, right=0.97, top=0.93, bottom=0.05)
         ax_tbl = fig.add_subplot(gs[0])
-        ax_desc = fig.add_subplot(gs[1])
+        ax_caption = fig.add_subplot(gs[1])
         fig.suptitle(_prefix("Monthly Profit Summary"), fontsize=12, fontweight="bold", y=0.98)
 
         ax_tbl.axis("off")
@@ -247,15 +320,44 @@ class Helper_Pdf_Renderer:
         else:
             cell_text = [["No monthly data yet", "—", "—", "—", "—"]]
 
+        # Size the table bbox to the row count instead of a fixed height —
+        # a fixed height made a single-month table absurdly tall and a
+        # many-month table cramped. Each row gets ~0.075 of the axes height,
+        # clamped so it never disappears (few rows) or overflows (many rows).
+        row_count = len(cell_text) + 1
+        table_top = 0.90
+        target_row_height = 0.075
+        min_table_height = 2 * target_row_height
+        max_table_height = table_top - 0.05
+        table_height = max(min_table_height, min(row_count * target_row_height, max_table_height))
         tbl = ax_tbl.table(
             cellText=cell_text,
             colLabels=col_headers,
             cellLoc="center",
-            loc="center",
+            bbox=[0.02, table_top - table_height, 0.96, table_height],
         )
+        # Scale font to match the actual per-row height (which is compressed
+        # once row_count pushes past max_table_height) so text never overlaps.
+        actual_row_height = table_height / row_count
+        fontsize = max(8, min(14, 14 * actual_row_height / target_row_height))
         tbl.auto_set_font_size(False)
-        tbl.set_fontsize(9)
+        tbl.set_fontsize(fontsize)
         tbl.auto_set_column_width(list(range(len(col_headers))))
+        # auto_set_column_width sizes "Days" too tightly for its header text
+        # (it only measures the short numeric cell values) — widen it and
+        # shrink the other columns proportionally so the row width is unchanged.
+        days_col = len(col_headers) - 1
+        old_widths = [tbl[0, col].get_width() for col in range(len(col_headers))]
+        total_width = sum(old_widths)
+        new_days_width = old_widths[days_col] * 1.8
+        shrink_factor = (total_width - new_days_width) / (total_width - old_widths[days_col])
+        new_widths = [
+            new_days_width if col == days_col else old_widths[col] * shrink_factor
+            for col in range(len(col_headers))
+        ]
+        for row_idx in range(len(cell_text) + 1):
+            for col in range(len(col_headers)):
+                tbl[row_idx, col].set_width(new_widths[col])
         for col in range(len(col_headers)):
             tbl[0, col].set_facecolor("#2c5f8a")
             tbl[0, col].set_text_props(color="white", fontweight="bold")
@@ -264,5 +366,5 @@ class Helper_Pdf_Renderer:
             for col in range(len(col_headers)):
                 tbl[row_idx, col].set_facecolor(bg)
 
-        self._add_description(ax_desc, "monthly_table", price=latest_price, profit_pct=price_pct)
+        self._add_caption(ax_caption, "monthly_table")
         self._save_page(fig)

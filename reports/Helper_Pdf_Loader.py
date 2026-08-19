@@ -16,13 +16,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PROFIT_PCT = 0.70
+_DEFAULT_PROFIT_PCT = 70.0
 
 
 class BookRawData(TypedDict):
     asin: str
     title: str
-    profit_pct: float                        # e.g. 0.70
+    profit_pct: float                        # raw royalty percent, e.g. 70.0 for 70%
     snapshot_rows: list[DailySnapshotRow]    # oldest-first; at least 2 entries guaranteed
 
 
