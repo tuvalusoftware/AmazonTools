@@ -88,11 +88,99 @@ def test_run_queries_active_books_from_registry() -> None:
         patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
         patch("jobs.scrape_bsr._scrape_bsr", return_value=[fake_rank]) as mock_scrape,
         patch("jobs.scrape_bsr.sync_missing_months") as mock_sync,
+        patch("jobs.scrape_bsr.CronRunLogRepo"),
     ):
         run()
 
     mock_scrape.assert_called_once_with("B00TEST123")
     mock_sync.assert_called_once_with("B00TEST123")
+
+
+# ---------------------------------------------------------------------------
+# run() — cron_run_log writes
+# ---------------------------------------------------------------------------
+
+
+def test_run_logs_success_row_for_scrape_and_monthly_summary() -> None:
+    mock_repo = MagicMock()
+    mock_repo.load_active_books.return_value = [_active_book("B00TEST123")]
+    mock_repo.save_bsr_snapshots.return_value = 1
+
+    fake_rank = BestSellerRank(asin="B00TEST123", rank=42, category="Books > Test")
+    mock_cron_log = MagicMock()
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr._scrape_bsr", return_value=[fake_rank]),
+        patch("jobs.scrape_bsr.sync_missing_months", return_value=2),
+        patch("jobs.scrape_bsr.CronRunLogRepo", return_value=mock_cron_log),
+    ):
+        run()
+
+    assert mock_cron_log.save.call_count == 2
+    cron_types = {c.kwargs.get("trigger") for c in mock_cron_log.save.call_args_list}
+    assert "cron" in cron_types
+    assert "scrape_bsr" in cron_types
+    statuses = {c.args[0]: c.kwargs["status"] for c in mock_cron_log.save.call_args_list}
+    assert statuses == {"scrape_bsr": "success", "monthly_summary": "success"}
+
+
+def test_run_logs_failure_row_when_no_ranks_found_and_no_monthly_summary_row() -> None:
+    mock_repo = MagicMock()
+    mock_repo.load_active_books.return_value = [_active_book("B00TEST123")]
+    mock_cron_log = MagicMock()
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr._scrape_bsr", return_value=[]),
+        patch("jobs.scrape_bsr.sync_missing_months") as mock_sync,
+        patch("jobs.scrape_bsr.CronRunLogRepo", return_value=mock_cron_log),
+    ):
+        run()
+
+    mock_sync.assert_not_called()
+    assert mock_cron_log.save.call_count == 1
+    call = mock_cron_log.save.call_args
+    assert call.args[0] == "scrape_bsr"
+    assert call.kwargs["status"] == "failure"
+
+
+def test_run_logs_failure_row_when_sync_missing_months_raises() -> None:
+    mock_repo = MagicMock()
+    mock_repo.load_active_books.return_value = [_active_book("B00TEST123")]
+    mock_repo.save_bsr_snapshots.return_value = 1
+    fake_rank = BestSellerRank(asin="B00TEST123", rank=42, category="Books > Test")
+    mock_cron_log = MagicMock()
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr._scrape_bsr", return_value=[fake_rank]),
+        patch("jobs.scrape_bsr.sync_missing_months", side_effect=RuntimeError("boom")),
+        patch("jobs.scrape_bsr.CronRunLogRepo", return_value=mock_cron_log),
+    ):
+        run()
+
+    calls_by_type = {c.args[0]: c.kwargs["status"] for c in mock_cron_log.save.call_args_list}
+    assert calls_by_type["monthly_summary"] == "failure"
+
+
+def test_run_cron_run_log_save_raising_does_not_abort_job() -> None:
+    mock_repo = MagicMock()
+    mock_repo.load_active_books.return_value = [_active_book("B00TEST123")]
+    mock_repo.save_bsr_snapshots.return_value = 1
+    fake_rank = BestSellerRank(asin="B00TEST123", rank=42, category="Books > Test")
+    mock_cron_log = MagicMock()
+    mock_cron_log.save.side_effect = RuntimeError("db down")
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr._scrape_bsr", return_value=[fake_rank]),
+        patch("jobs.scrape_bsr.sync_missing_months", return_value=0),
+        patch("jobs.scrape_bsr.CronRunLogRepo", return_value=mock_cron_log),
+    ):
+        run()  # must not raise
+
+    mock_repo.save_bsr_snapshots.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +211,7 @@ def test_run_sync_missing_months_failure_does_not_abort_loop() -> None:
         patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
         patch("jobs.scrape_bsr._scrape_bsr", side_effect=[[fake_rank_a], [fake_rank_b]]),
         patch("jobs.scrape_bsr.sync_missing_months", side_effect=[RuntimeError("boom"), 0]) as mock_sync,
+        patch("jobs.scrape_bsr.CronRunLogRepo"),
     ):
         run()
 
@@ -138,6 +227,7 @@ def test_run_does_not_sync_missing_months_when_no_ranks() -> None:
         patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
         patch("jobs.scrape_bsr._scrape_bsr", return_value=[]),
         patch("jobs.scrape_bsr.sync_missing_months") as mock_sync,
+        patch("jobs.scrape_bsr.CronRunLogRepo"),
     ):
         run()
 

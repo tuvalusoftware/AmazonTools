@@ -178,6 +178,7 @@ def test_run_covers_all_asins_and_sums_computed_counts() -> None:
     with patch("jobs.monthly_summary.SnapshotRepo") as MockSnapshotRepo, \
          patch("jobs.monthly_summary.BookRepo"), \
          patch("jobs.monthly_summary.MonthlySummaryRepo"), \
+         patch("jobs.monthly_summary.CronRunLogRepo"), \
          patch("jobs.monthly_summary.sync_missing_months") as mock_sync:
 
         MockSnapshotRepo.return_value.list_asins_that_have_data.return_value = ["ASIN_A", "ASIN_B"]
@@ -188,3 +189,64 @@ def test_run_covers_all_asins_and_sums_computed_counts() -> None:
     assert mock_sync.call_count == 2
     called_asins = [c.args[0] for c in mock_sync.call_args_list]
     assert called_asins == ["ASIN_A", "ASIN_B"]
+
+
+# ---------------------------------------------------------------------------
+# run() — cron_run_log writes
+# ---------------------------------------------------------------------------
+
+
+def test_run_writes_one_cron_run_log_row_per_asin() -> None:
+    mock_cron_log = MagicMock()
+    with patch("jobs.monthly_summary.SnapshotRepo") as MockSnapshotRepo, \
+         patch("jobs.monthly_summary.BookRepo"), \
+         patch("jobs.monthly_summary.MonthlySummaryRepo"), \
+         patch("jobs.monthly_summary.CronRunLogRepo", return_value=mock_cron_log), \
+         patch("jobs.monthly_summary.sync_missing_months") as mock_sync:
+
+        MockSnapshotRepo.return_value.list_asins_that_have_data.return_value = ["ASIN_A", "ASIN_B"]
+        mock_sync.side_effect = [2, 0]
+
+        run()
+
+    assert mock_cron_log.save.call_count == 2
+    for call in mock_cron_log.save.call_args_list:
+        assert call.args[0] == "monthly_summary"
+        assert call.kwargs["trigger"] == "cron"
+        assert call.kwargs["status"] == "success"
+
+
+def test_run_asin_failure_does_not_abort_loop_and_logs_failure_row() -> None:
+    mock_cron_log = MagicMock()
+    with patch("jobs.monthly_summary.SnapshotRepo") as MockSnapshotRepo, \
+         patch("jobs.monthly_summary.BookRepo"), \
+         patch("jobs.monthly_summary.MonthlySummaryRepo"), \
+         patch("jobs.monthly_summary.CronRunLogRepo", return_value=mock_cron_log), \
+         patch("jobs.monthly_summary.sync_missing_months") as mock_sync:
+
+        MockSnapshotRepo.return_value.list_asins_that_have_data.return_value = ["ASIN_A", "ASIN_B"]
+        mock_sync.side_effect = [RuntimeError("boom"), 1]
+
+        run()
+
+    assert mock_sync.call_count == 2
+    calls = mock_cron_log.save.call_args_list
+    assert calls[0].kwargs["status"] == "failure"
+    assert calls[1].kwargs["status"] == "success"
+
+
+def test_run_cron_run_log_save_raising_does_not_abort_sweep() -> None:
+    mock_cron_log = MagicMock()
+    mock_cron_log.save.side_effect = RuntimeError("db down")
+    with patch("jobs.monthly_summary.SnapshotRepo") as MockSnapshotRepo, \
+         patch("jobs.monthly_summary.BookRepo"), \
+         patch("jobs.monthly_summary.MonthlySummaryRepo"), \
+         patch("jobs.monthly_summary.CronRunLogRepo", return_value=mock_cron_log), \
+         patch("jobs.monthly_summary.sync_missing_months") as mock_sync:
+
+        MockSnapshotRepo.return_value.list_asins_that_have_data.return_value = ["ASIN_A"]
+        mock_sync.return_value = 0
+
+        run()  # must not raise
+
+    mock_sync.assert_called_once()

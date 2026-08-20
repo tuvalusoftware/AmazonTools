@@ -287,17 +287,25 @@ class TestRun:
 
         mock_repo = MagicMock()
         mock_repo.load_active_books.return_value = []
+        mock_cron_log = MagicMock()
 
         with (
             patch("jobs.email_digest.BookRepo", return_value=mock_repo),
             patch("jobs.email_digest.send_email") as mock_send,
             patch("jobs.email_digest.Service_Pdf_GenFromAsin"),
+            patch("jobs.email_digest.CronRunLogRepo", return_value=mock_cron_log),
             caplog.at_level("WARNING", logger="jobs.email_digest"),
         ):
             run()
 
         mock_send.assert_not_called()
         assert any("No active books" in r.message for r in caplog.records)
+        mock_cron_log.save.assert_called_once()
+        call = mock_cron_log.save.call_args
+        assert call.args[0] == "email_digest"
+        assert call.kwargs["asin"] is None
+        assert call.kwargs["status"] == "success"
+        assert call.kwargs["detail"] == "no active books — skipped"
 
     # --- test_run_groups_books_by_email ---
 
@@ -318,6 +326,7 @@ class TestRun:
             patch("jobs.email_digest._build_digest_html", return_value="<html/>"),
             patch("jobs.email_digest.send_email") as mock_send,
             patch("jobs.email_digest.Service_Pdf_GenFromAsin"),
+            patch("jobs.email_digest.CronRunLogRepo"),
         ):
             run()
 
@@ -365,6 +374,7 @@ class TestRun:
             patch("jobs.email_digest.send_email"),
             patch("jobs.email_digest.Service_Pdf_GenFromAsin") as MockPdf,
             patch.object(Path, "rename", capturing_rename),
+            patch("jobs.email_digest.CronRunLogRepo"),
         ):
             # Service_Pdf_GenFromAsin().run() is a no-op; the real temp file is
             # already on disk from NamedTemporaryFile above, so we patch the
@@ -411,9 +421,62 @@ class TestRun:
             patch("jobs.email_digest._build_digest_html", return_value="<html/>"),
             patch("jobs.email_digest.send_email") as mock_send,
             patch("jobs.email_digest.Service_Pdf_GenFromAsin"),
+            patch("jobs.email_digest.CronRunLogRepo"),
         ):
             run()
 
         assert mock_send.call_count >= 1
         subject = mock_send.call_args_list[0].args[1]
         assert today_iso in subject
+
+    # --- test_run_logs_one_cron_run_log_row_with_authors_emailed_count ---
+
+    def test_run_logs_one_cron_run_log_row_with_authors_emailed_count(self) -> None:
+        from jobs.email_digest import run
+
+        books = [
+            _make_book_row(email="alice@example.com", asin="ASIN001"),
+            _make_book_row(email="bob@example.com", asin="ASIN002"),
+        ]
+
+        mock_repo = MagicMock()
+        mock_repo.load_active_books.return_value = books
+        mock_cron_log = MagicMock()
+
+        with (
+            patch("jobs.email_digest.BookRepo", return_value=mock_repo),
+            patch("jobs.email_digest._build_digest_html", return_value="<html/>"),
+            patch("jobs.email_digest.send_email"),
+            patch("jobs.email_digest.Service_Pdf_GenFromAsin"),
+            patch("jobs.email_digest.CronRunLogRepo", return_value=mock_cron_log),
+        ):
+            run()
+
+        mock_cron_log.save.assert_called_once()
+        call = mock_cron_log.save.call_args
+        assert call.args[0] == "email_digest"
+        assert call.kwargs["asin"] is None
+        assert call.kwargs["status"] == "success"
+        assert call.kwargs["detail"] == "2 author(s) emailed"
+
+    # --- test_run_cron_run_log_save_raising_does_not_abort_run ---
+
+    def test_run_cron_run_log_save_raising_does_not_abort_run(self) -> None:
+        from jobs.email_digest import run
+
+        books = [_make_book_row()]
+        mock_repo = MagicMock()
+        mock_repo.load_active_books.return_value = books
+        mock_cron_log = MagicMock()
+        mock_cron_log.save.side_effect = RuntimeError("db down")
+
+        with (
+            patch("jobs.email_digest.BookRepo", return_value=mock_repo),
+            patch("jobs.email_digest._build_digest_html", return_value="<html/>"),
+            patch("jobs.email_digest.send_email") as mock_send,
+            patch("jobs.email_digest.Service_Pdf_GenFromAsin"),
+            patch("jobs.email_digest.CronRunLogRepo", return_value=mock_cron_log),
+        ):
+            run()  # must not raise
+
+        mock_send.assert_called_once()

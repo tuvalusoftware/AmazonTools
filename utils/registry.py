@@ -78,6 +78,28 @@ CREATE TABLE IF NOT EXISTS book_monthly_summary (
 );
 """
 
+_CREATE_CRON_RUN_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS cron_run_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    cron_type    TEXT    NOT NULL,
+    asin         TEXT,
+    trigger      TEXT    NOT NULL,
+    started_at   TEXT    NOT NULL,
+    finished_at  TEXT    NOT NULL,
+    status       TEXT    NOT NULL,
+    detail       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cron_run_log_cron_type_started_at
+    ON cron_run_log (cron_type, started_at);
+
+CREATE INDEX IF NOT EXISTS idx_cron_run_log_asin
+    ON cron_run_log (asin);
+
+CREATE INDEX IF NOT EXISTS idx_cron_run_log_started_at
+    ON cron_run_log (started_at);
+"""
+
 
 class _BsrRecord(Protocol):
     asin: str
@@ -122,6 +144,7 @@ class BookRepo:
                 conn.execute(_CREATE_TABLE)
                 conn.executescript(_CREATE_BSR_SNAPSHOTS_TABLE)
                 conn.executescript(_CREATE_MONTHLY_SUMMARY_TABLE)
+                conn.executescript(_CREATE_CRON_RUN_LOG_TABLE)
             try:
                 conn.execute(
                     "ALTER TABLE bsr_snapshots ADD COLUMN price REAL NOT NULL DEFAULT 0"

@@ -27,6 +27,7 @@ from jobs.monthly_summary import sync_missing_months
 from utils.browser import extract_bsr_html_fragment, extract_price_from_html, fetch_page_html
 from utils.logger import get_logger
 from utils.registry import BookRepo
+from utils.Repo_CronRunLog import CronRunLogRepo
 
 log = get_logger(__name__)
 
@@ -185,6 +186,7 @@ def run() -> None:
 
     log.info("Using SQLite registry (%d active ASINs)", len(asins))
     repo = BookRepo()
+    cron_run_log_repo = CronRunLogRepo()
     total_saved = 0
 
     for idx, asin in enumerate(asins):
@@ -193,20 +195,83 @@ def run() -> None:
             time.sleep(settings.REQUEST_DELAY)
 
         log.info("Scraping BSR for ASIN: %s", asin)
+        scrape_started_at = datetime.now(timezone.utc).isoformat()
         ranks = _scrape_bsr(str(asin))
         log.info("ASIN %s → %d rank entries", asin, len(ranks))
 
         if ranks:
             saved = repo.save_bsr_snapshots(ranks)
             total_saved += saved
+            _log_cron_run(
+                cron_run_log_repo,
+                cron_type="scrape_bsr",
+                asin=str(asin),
+                trigger="cron",
+                started_at=scrape_started_at,
+                status="success",
+                detail=f"{len(ranks)} rank(s) saved",
+            )
 
+            monthly_started_at = datetime.now(timezone.utc).isoformat()
             try:
                 computed = sync_missing_months(asin)
                 if computed:
                     log.info("ASIN %s — backfilled %d missing monthly summary month(s)", asin, computed)
+                _log_cron_run(
+                    cron_run_log_repo,
+                    cron_type="monthly_summary",
+                    asin=str(asin),
+                    trigger="scrape_bsr",
+                    started_at=monthly_started_at,
+                    status="success",
+                    detail=f"{computed} month(s) backfilled",
+                )
             except Exception as exc:
                 log.warning("ASIN %s — monthly summary sync failed (will retry next scrape): %s", asin, exc)
+                _log_cron_run(
+                    cron_run_log_repo,
+                    cron_type="monthly_summary",
+                    asin=str(asin),
+                    trigger="scrape_bsr",
+                    started_at=monthly_started_at,
+                    status="failure",
+                    detail=str(exc),
+                )
         else:
             log.warning("ASIN %s — no BSR data found", asin)
+            _log_cron_run(
+                cron_run_log_repo,
+                cron_type="scrape_bsr",
+                asin=str(asin),
+                trigger="cron",
+                started_at=scrape_started_at,
+                status="failure",
+                detail="no BSR data found",
+            )
 
     log.info("=== scrape_bsr job finished — total saved: %d ===", total_saved)
+
+
+def _log_cron_run(
+    repo: CronRunLogRepo,
+    *,
+    cron_type: str,
+    asin: str | None,
+    trigger: str,
+    started_at: str,
+    status: str,
+    detail: str | None,
+) -> None:
+    """Write one cron_run_log row without letting a logging failure abort the job."""
+    try:
+        repo.save(
+            cron_type,
+            asin=asin,
+            trigger=trigger,
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            status=status,
+            detail=detail,
+        )
+    except Exception as exc:
+        log.warning("Failed to write cron_run_log row for %s (asin=%s): %s", cron_type, asin, exc)

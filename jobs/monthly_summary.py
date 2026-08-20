@@ -8,7 +8,7 @@ Entry point:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from config import settings
@@ -16,6 +16,7 @@ from reports.Helper_Pdf_Loader import _DEFAULT_PROFIT_PCT
 from reports.Helper_Pdf_Metrics import aggregate_month
 from utils.logger import get_logger
 from utils.registry import BookRepo
+from utils.Repo_CronRunLog import CronRunLogRepo
 from utils.Repo_MonthlySummary import MonthlySummaryRepo
 from utils.Repo_Snapshot import SnapshotRepo
 
@@ -100,15 +101,58 @@ def run() -> None:
     snapshot_repo = SnapshotRepo()
     book_repo = BookRepo()
     summary_repo = MonthlySummaryRepo()
+    cron_run_log_repo = CronRunLogRepo()
 
     asins = snapshot_repo.list_asins_that_have_data()
     total_computed = 0
     for asin in asins:
-        total_computed += sync_missing_months(
-            asin, snapshot_repo=snapshot_repo, book_repo=book_repo, summary_repo=summary_repo,
-        )
+        started_at = datetime.now(timezone.utc).isoformat()
+        try:
+            computed = sync_missing_months(
+                asin, snapshot_repo=snapshot_repo, book_repo=book_repo, summary_repo=summary_repo,
+            )
+            total_computed += computed
+            _log_cron_run(
+                cron_run_log_repo,
+                asin=asin,
+                started_at=started_at,
+                status="success",
+                detail=f"{computed} month(s) backfilled",
+            )
+        except Exception as exc:
+            log.warning("ASIN %s — monthly summary sync failed: %s", asin, exc)
+            _log_cron_run(
+                cron_run_log_repo,
+                asin=asin,
+                started_at=started_at,
+                status="failure",
+                detail=str(exc),
+            )
 
     log.info(
         "Monthly summary cron: %d month(s) computed across %d ASIN(s)",
         total_computed, len(asins),
     )
+
+
+def _log_cron_run(
+    repo: CronRunLogRepo,
+    *,
+    asin: str,
+    started_at: str,
+    status: str,
+    detail: str | None,
+) -> None:
+    """Write one cron_run_log row without letting a logging failure abort the sweep."""
+    try:
+        repo.save(
+            "monthly_summary",
+            asin=asin,
+            trigger="cron",
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            status=status,
+            detail=detail,
+        )
+    except Exception as exc:
+        log.warning("Failed to write cron_run_log row for monthly_summary (asin=%s): %s", asin, exc)

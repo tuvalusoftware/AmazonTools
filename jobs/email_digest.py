@@ -11,7 +11,7 @@ from __future__ import annotations
 import smtplib
 import tempfile
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -25,6 +25,7 @@ from reports.Service_pdf_genFromAsin import Service_Pdf_GenFromAsin
 from utils.Formula_calculator import Formula
 from utils.logger import get_logger
 from utils.registry import BookRepo
+from utils.Repo_CronRunLog import CronRunLogRepo
 
 log = get_logger(__name__)
 
@@ -166,11 +167,17 @@ def send_email(
 
 def run() -> None:
     """Build and dispatch one digest email per unique author address."""
+    started_at = datetime.now(timezone.utc).isoformat()
     repo = BookRepo()
     active_books = repo.load_active_books()
 
     if not active_books:
         log.warning("No active books found — skipping digest email run.")
+        _log_cron_run(
+            started_at=started_at,
+            status="success",
+            detail="no active books — skipped",
+        )
         return
 
     grouped: dict[str, list[dict]] = defaultdict(list)
@@ -213,3 +220,24 @@ def run() -> None:
         log.debug("Temp PDF deleted: %s", tmp_pdf)
 
     log.info("Digest run complete — emailed %d author(s).", authors_emailed)
+    _log_cron_run(
+        started_at=started_at,
+        status="success",
+        detail=f"{authors_emailed} author(s) emailed",
+    )
+
+
+def _log_cron_run(*, started_at: str, status: str, detail: str | None) -> None:
+    """Write one cron_run_log row without letting a logging failure abort the run."""
+    try:
+        CronRunLogRepo().save(
+            "email_digest",
+            asin=None,
+            trigger="cron",
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            status=status,
+            detail=detail,
+        )
+    except Exception as exc:
+        log.warning("Failed to write cron_run_log row for email_digest: %s", exc)
