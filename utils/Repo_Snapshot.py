@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from datetime import date
 from pathlib import Path
 from typing import TypedDict
 
@@ -151,6 +152,30 @@ class SnapshotRepo:
             )
             for row in rows
         ]
+
+    def get_data_month_range(self, asin: str) -> tuple[int, int, int, int] | None:
+        """Return (start_year, start_month, end_year, end_month) spanning every
+        calendar month that has at least one bsr_snapshots row for *asin*,
+        inclusive on both ends. None if *asin* has no rows at all."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT MIN(DATE(scraped_at)) AS first_date, MAX(DATE(scraped_at)) AS last_date
+                FROM   bsr_snapshots
+                WHERE  asin = ?
+                """,
+                (asin,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None or row["first_date"] is None:
+            return None
+
+        first = date.fromisoformat(row["first_date"])
+        last = date.fromisoformat(row["last_date"])
+        return (first.year, first.month, last.year, last.month)
 
     def list_asins_that_have_data(self) -> list[str]:
         """Return every distinct ASIN that has at least one row in bsr_snapshots."""

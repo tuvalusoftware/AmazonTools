@@ -23,6 +23,7 @@ from pathlib import Path
 from scrapegraphai.graphs import SmartScraperGraph
 
 from config import settings, build_graph_config
+from jobs.monthly_summary import sync_missing_months
 from utils.browser import extract_bsr_html_fragment, extract_price_from_html, fetch_page_html
 from utils.logger import get_logger
 from utils.registry import BookRepo
@@ -198,6 +199,13 @@ def run() -> None:
         if ranks:
             saved = repo.save_bsr_snapshots(ranks)
             total_saved += saved
+
+            try:
+                computed = sync_missing_months(asin)
+                if computed:
+                    log.info("ASIN %s — backfilled %d missing monthly summary month(s)", asin, computed)
+            except Exception as exc:
+                log.warning("ASIN %s — monthly summary sync failed (will retry next scrape): %s", asin, exc)
         else:
             log.warning("ASIN %s — no BSR data found", asin)
 

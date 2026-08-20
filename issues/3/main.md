@@ -11,17 +11,28 @@ unboundedly, even though past months are immutable once elapsed.
 
 ## Decisions
 
-- **Trigger**: new monthly cron job (start of each calendar month) computes
-  the just-completed month for every ASIN and upserts into a new table.
-- **Scope**: all ASINs with any `bsr_snapshots` row, active or not.
-- **Backfill**: in scope, self-healing — each run walks every completed
+- **Trigger**: two triggers share one self-healing function
+  (`sync_missing_months(asin)`, see [7](./07-backfill-missed-months.md)):
+  - the monthly cron job (start of each calendar month), which sweeps
+    every ASIN with any snapshot history, active or not;
+  - the daily `scrape_bsr` job, which calls it for a single ASIN right
+    after successfully saving that ASIN's snapshot for the day — so a
+    missed cron run doesn't need to wait up to a month to self-heal for
+    any ASIN still being actively scraped.
+- **Scope**: all ASINs with any `bsr_snapshots` row, active or not, are
+  covered by the monthly cron; the daily trigger only covers active ASINs
+  (`scrape_bsr` only iterates `load_active_books()`), so unsubscribed
+  ASINs rely on the monthly cron alone.
+- **Backfill**: in scope, self-healing — each call walks every completed
   month between an ASIN's earliest snapshot and last month (not just "last
   month"), skipping months that already have a stored row. This recovers
   automatically from a missed cron run (app down/crashed/redeployed over a
-  month boundary) without a separate manual backfill step. See
-  [7](./07-backfill-missed-months.md). Months still missing a row (e.g.
-  before this job's first-ever successful run) keep falling back to live
-  aggregation from `bsr_snapshots`, per [6](./06-metrics-integration.md).
+  month boundary) without a separate manual backfill step, and for active
+  ASINs recovers on the very next successful daily scrape rather than
+  waiting for the next monthly cron. See [7](./07-backfill-missed-months.md).
+  Months still missing a row (e.g. before this job's first-ever successful
+  run) keep falling back to live aggregation from `bsr_snapshots`, per
+  [6](./06-metrics-integration.md).
 - Daily/cumulative chart data is untouched — still computed live.
 - `Helper_Pdf_Metrics.compute()` reads the precomputed row first, falls back
   to live calc when missing.
@@ -37,7 +48,7 @@ unboundedly, even though past months are immutable once elapsed.
 - [x] [4. `jobs/monthly_summary.py` — the new monthly cron job](./04-monthly-job.md)
 - [x] [5. Wire the job into the scheduler, config, and manual runner](./05-scheduling.md)
 - [x] [6. `Helper_Pdf_Metrics` — read precomputed rows, fall back to live calc](./06-metrics-integration.md)
-- [ ] [7. Self-healing backfill for missed monthly runs](./07-backfill-missed-months.md)
+- [x] [7. Self-healing backfill for missed monthly runs](./07-backfill-missed-months.md)
 
 ## Out of scope
 
@@ -62,6 +73,9 @@ unboundedly, even though past months are immutable once elapsed.
       most recent completed month should be missing a row — simulating a
       normal single run) → confirm all missing completed months get a row
       in one run, not just the latest.
+- [ ] Seed an active ASIN with a gap month (missing summary row) and run
+      `scrape_bsr`'s job for it → after that scrape, the gap month has a
+      row without waiting for the monthly cron.
 
 ## Verification
 

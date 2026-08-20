@@ -228,3 +228,26 @@ def test_list_asins_that_have_data_returns_distinct_asins(tmp_db: BookRepo) -> N
     result = _make_repo(tmp_db).list_asins_that_have_data()
 
     assert sorted(result) == [asin_a, asin_b]
+
+
+# ---------------------------------------------------------------------------
+# test_get_data_month_range
+# ---------------------------------------------------------------------------
+
+
+def test_get_data_month_range_spans_earliest_to_latest_snapshot(tmp_db: BookRepo) -> None:
+    asin = "B000000011"
+    _insert_rows(tmp_db, [
+        _snap(asin, rank=100, price=9.99, date_str="2026-06-15"),
+        _snap(asin, rank=100, price=9.99, date_str="2026-07-01"),
+        _snap(asin, rank=100, price=9.99, date_str="2026-08-20"),
+    ])
+
+    result = _make_repo(tmp_db).get_data_month_range(asin)
+
+    assert result == (2026, 6, 2026, 8)
+
+
+def test_get_data_month_range_returns_none_for_no_data(tmp_db: BookRepo) -> None:
+    result = _make_repo(tmp_db).get_data_month_range("B_NO_DATA")
+    assert result is None
