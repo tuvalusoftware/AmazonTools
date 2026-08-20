@@ -64,6 +64,20 @@ CREATE INDEX IF NOT EXISTS idx_bsr_snapshots_asin_scraped
     ON bsr_snapshots (asin, scraped_at DESC);
 """
 
+_CREATE_MONTHLY_SUMMARY_TABLE = """
+CREATE TABLE IF NOT EXISTS book_monthly_summary (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    asin           TEXT    NOT NULL,
+    year           INTEGER NOT NULL,
+    month          INTEGER NOT NULL,
+    total_units    INTEGER NOT NULL,
+    total_profit   REAL    NOT NULL,
+    days_with_data INTEGER NOT NULL,
+    computed_at    TEXT    NOT NULL,
+    UNIQUE (asin, year, month)
+);
+"""
+
 
 class _BsrRecord(Protocol):
     asin: str
@@ -107,6 +121,7 @@ class BookRepo:
             with conn:
                 conn.execute(_CREATE_TABLE)
                 conn.executescript(_CREATE_BSR_SNAPSHOTS_TABLE)
+                conn.executescript(_CREATE_MONTHLY_SUMMARY_TABLE)
             try:
                 conn.execute(
                     "ALTER TABLE bsr_snapshots ADD COLUMN price REAL NOT NULL DEFAULT 0"
@@ -264,6 +279,18 @@ class BookRepo:
         try:
             cursor = conn.execute("SELECT * FROM tracked_books WHERE active = 1")
             return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def find_book_by_asin(self, asin: str) -> dict[str, object] | None:
+        """Return any tracked_books row for *asin* (active or not), or None."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM tracked_books WHERE asin = ? ORDER BY active DESC LIMIT 1",
+                (asin,),
+            ).fetchone()
+            return dict(row) if row else None
         finally:
             conn.close()
 

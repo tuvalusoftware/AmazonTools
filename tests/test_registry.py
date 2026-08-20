@@ -22,6 +22,7 @@ def test_init_db_creates_tables(tmp_db: BookRepo) -> None:
 
     assert "tracked_books" in tables
     assert "bsr_snapshots" in tables
+    assert "book_monthly_summary" in tables
 
 
 def test_init_db_idempotent(tmp_db: BookRepo) -> None:

@@ -16,6 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import settings
 from jobs.email_digest import run as email_digest_run
+from jobs.monthly_summary import run as monthly_summary_run
 from jobs.scrape_bsr import run as scrape_bsr_job
 from utils.logger import get_logger
 from utils.registry import BookRepo
@@ -54,7 +55,7 @@ def main() -> None:
 
     scheduler.add_job(
         scrape_bsr_job,
-        trigger=CronTrigger.from_crontab(settings.CRON_SCHEDULE, timezone=settings.TIMEZONE),
+        trigger=CronTrigger.from_crontab(settings.SCRAPE_BSR_CRON, timezone=settings.TIMEZONE),
         id="scrape_bsr",
         name="Scrape Amazon Best Seller Rank",
         replace_existing=True,
@@ -70,6 +71,16 @@ def main() -> None:
         misfire_grace_time=300,
     )
     log.info("email_digest job registered")
+
+    scheduler.add_job(
+        monthly_summary_run,
+        trigger=CronTrigger.from_crontab(settings.MONTHLY_SUMMARY_CRON, timezone=settings.TIMEZONE),
+        id="monthly_summary",
+        name="Compute Monthly Profit Summary",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    log.info("monthly_summary job registered")
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda s, f: _shutdown(scheduler, s, f))

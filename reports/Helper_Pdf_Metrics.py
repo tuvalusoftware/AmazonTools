@@ -7,11 +7,11 @@ Owned here: MonthlyRow, BookMetricsData (producer is Helper_Pdf_Metrics.compute)
 from __future__ import annotations
 
 import itertools
-from collections import defaultdict
 from datetime import date, datetime
 from typing import NamedTuple, TypedDict
 
 from utils.Formula_calculator import Formula
+from utils.Repo_MonthlySummary import MonthlySummaryRepo
 from utils.Repo_Snapshot import DailySnapshotRow
 from reports.Helper_Pdf_Loader import BookRawData
 
@@ -41,6 +41,24 @@ class BookMetricsData(TypedDict):
     monthly_rows: list[MonthlyRow]
 
 
+def aggregate_month(
+    rows: list[DailySnapshotRow], profit_pct: float
+) -> tuple[int, float, int]:
+    """Aggregate one month's daily snapshot rows into (total_units, total_profit, days_with_data).
+
+    Same units/profit formula as the daily series: Formula.estimated_units_per_day
+    and Formula.daily_profit per row, summed.
+    """
+    total_units = 0
+    total_profit = 0.0
+    for row in rows:
+        rank = row["rank"]
+        price = row["price"] if row["price"] else 0.0
+        total_units += Formula.estimated_units_per_day(rank)
+        total_profit += Formula.daily_profit(rank, price, profit_pct)
+    return total_units, total_profit, len(rows)
+
+
 class Helper_Pdf_Metrics:
     """Computes derived metrics from raw book snapshot data.
 
@@ -50,6 +68,9 @@ class Helper_Pdf_Metrics:
 
         data: BookMetricsData = Helper_Pdf_Metrics().compute(raw_data)
     """
+
+    def __init__(self, monthly_repo: MonthlySummaryRepo | None = None) -> None:
+        self._monthly_repo = monthly_repo or MonthlySummaryRepo()
 
     def compute(self, data: BookRawData) -> BookMetricsData:
         """Derive daily and monthly metrics from *data*.
@@ -91,25 +112,21 @@ class Helper_Pdf_Metrics:
         today = date.today()
         current_ym = (today.year, today.month)
 
-        def _empty_bucket() -> dict[str, int | float]:
-            return {"total_units": 0, "total_profit": 0.0, "days_with_data": 0}
+        precomputed = self._monthly_repo.get_many(data["asin"])
 
-        monthly: defaultdict[tuple[int, int], dict[str, int | float]] = defaultdict(_empty_bucket)
-        for i, d in enumerate(dates):
-            ym = (d.year, d.month)
-            if ym == current_ym:
-                continue
-            bucket = monthly[ym]
-            bucket["total_units"] += units_per_day[i]
-            bucket["total_profit"] += profit_per_day[i]
-            bucket["days_with_data"] += 1
+        past_months = sorted({(d.year, d.month) for d in dates if (d.year, d.month) != current_ym})
 
         monthly_rows: list[MonthlyRow] = []
-        for ym in sorted(monthly):
-            bucket = monthly[ym]
-            days_with_data = bucket["days_with_data"]
-            total_units = bucket["total_units"]
-            total_profit = bucket["total_profit"]
+        for ym in past_months:
+            stored = precomputed.get(ym)
+            if stored is not None:
+                total_units = stored["total_units"]
+                total_profit = stored["total_profit"]
+                days_with_data = stored["days_with_data"]
+            else:
+                month_rows = [row for row, d in zip(rows, dates) if (d.year, d.month) == ym]
+                total_units, total_profit, days_with_data = aggregate_month(month_rows, profit_pct)
+
             avg_daily_profit = total_profit / days_with_data if days_with_data else 0.0
             label = datetime(ym[0], ym[1], 1).strftime("%b %Y")
             monthly_rows.append(
@@ -118,7 +135,7 @@ class Helper_Pdf_Metrics:
                     units_str=f"{total_units:,}",
                     profit_str=f"${total_profit:,.2f}",
                     avg_str=f"${avg_daily_profit:,.2f}",
-            days_with_data=int(bucket["days_with_data"]),
+                    days_with_data=int(days_with_data),
                 )
             )
 

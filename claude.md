@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Project conventions for Claude
 
+## Documentation language
+
+- All Markdown files in this repo (issues, plans, docs, comments) must be written in English — no Vietnamese, even for section headings.
+
 ## Python — repository / service classes
 
 - **Always call class methods directly** on an instance of the class (e.g. `BookRepo().load_active_books()`).
@@ -28,5 +32,5 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Configuration
 
-- Settings come from `.env` (see `.env.example`) via pydantic-settings — SQLite path (`DB_PATH`), SMTP (Gmail App Password required), `LLM_PROVIDER` + per-provider API keys, `CRON_SCHEDULE`/`EMAIL_DIGEST_CRON`.
+- Settings come from `.env` (see `.env.example`) via pydantic-settings — SQLite path (`DB_PATH`), SMTP (Gmail App Password required), `LLM_PROVIDER` + per-provider API keys, `SCRAPE_BSR_CRON`/`EMAIL_DIGEST_CRON`.
 - `WEB_BASE_URL` must be a host-reachable address (not `localhost`) since it's embedded in email unsubscribe links — especially easy to get wrong under Docker.

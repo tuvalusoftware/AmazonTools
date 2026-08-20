@@ -166,3 +166,65 @@ def test_load_daily_snapshots_days_zero_returns_all(tmp_db: BookRepo) -> None:
     result = _make_repo(tmp_db).load_daily_snapshots(asin, days=0)
 
     assert len(result) == 10
+
+
+# ---------------------------------------------------------------------------
+# test_load_daily_snapshots_for_month_scopes_to_requested_month
+# ---------------------------------------------------------------------------
+
+
+def test_load_daily_snapshots_for_month_scopes_to_requested_month(tmp_db: BookRepo) -> None:
+    """Snapshots spanning July/August/September — querying August returns only August."""
+    asin = "B000000007"
+    _insert_rows(tmp_db, [
+        _snap(asin, rank=100, price=9.99, date_str="2026-07-31"),
+        _snap(asin, rank=100, price=9.99, date_str="2026-08-01"),
+        _snap(asin, rank=100, price=9.99, date_str="2026-08-15"),
+        _snap(asin, rank=100, price=9.99, date_str="2026-08-31"),
+        _snap(asin, rank=100, price=9.99, date_str="2026-09-01"),
+    ])
+
+    result = _make_repo(tmp_db).load_daily_snapshots_for_month(asin, year=2026, month=8)
+
+    assert [row["date"] for row in result] == [
+        "2026-08-01",
+        "2026-08-15",
+        "2026-08-31",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# test_load_daily_snapshots_for_month_returns_empty_for_no_data
+# ---------------------------------------------------------------------------
+
+
+def test_load_daily_snapshots_for_month_returns_empty_for_no_data(tmp_db: BookRepo) -> None:
+    """A month with no snapshots returns an empty list, not None."""
+    asin = "B000000008"
+    _insert_rows(tmp_db, [
+        _snap(asin, rank=100, price=9.99, date_str="2026-08-01"),
+    ])
+
+    result = _make_repo(tmp_db).load_daily_snapshots_for_month(asin, year=2026, month=7)
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# test_list_asins_that_have_data_returns_distinct_asins
+# ---------------------------------------------------------------------------
+
+
+def test_list_asins_that_have_data_returns_distinct_asins(tmp_db: BookRepo) -> None:
+    """Duplicate-ASIN rows collapse to one entry; no join through tracked_books."""
+    asin_a = "B000000009"
+    asin_b = "B000000010"
+    _insert_rows(tmp_db, [
+        _snap(asin_a, rank=100, price=9.99, date_str="2026-08-01"),
+        _snap(asin_a, rank=200, price=9.99, date_str="2026-08-02"),
+        _snap(asin_b, rank=100, price=9.99, date_str="2026-08-01"),
+    ])
+
+    result = _make_repo(tmp_db).list_asins_that_have_data()
+
+    assert sorted(result) == [asin_a, asin_b]

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobs.scrape_bsr import BestSellerRank, _parse_price, run
-from bs4 import BeautifulSoup
+from jobs.scrape_bsr import BestSellerRank, run
+from utils.browser import extract_price_from_html
 
 
 # ---------------------------------------------------------------------------
@@ -21,26 +21,33 @@ def test_bestsellerrank_price_field_defaults_to_zero() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _parse_price — selector coverage
+# extract_price_from_html — selector coverage
 # ---------------------------------------------------------------------------
 
 
-def test_price_scraped_from_first_selector() -> None:
-    html = '<html><body><span class="a-offscreen">$14.99</span></body></html>'
-    soup = BeautifulSoup(html, "html.parser")
-    assert _parse_price(soup) == 14.99
+def test_price_scraped_from_data_pricetopay_label() -> None:
+    html = '<html><body><span data-pricetopay-label aria-label="$14.99 with 50 percent savings"></span></body></html>'
+    assert extract_price_from_html(html) == 14.99
 
 
 def test_price_falls_back_through_selectors() -> None:
     html = '<html><body><span id="kindle-price">$9.99</span></body></html>'
-    soup = BeautifulSoup(html, "html.parser")
-    assert _parse_price(soup) == 9.99
+    assert extract_price_from_html(html) == 9.99
+
+
+def test_price_falls_back_to_a_price_text() -> None:
+    html = (
+        '<html><body><span class="a-price">'
+        '<span class="a-price-whole">12.</span>'
+        '<span class="a-price-fraction">34</span>'
+        "</span></body></html>"
+    )
+    assert extract_price_from_html(html) == 12.34
 
 
 def test_price_defaults_to_zero_when_no_selector_matches() -> None:
     html = "<html><body><p>No price here</p></body></html>"
-    soup = BeautifulSoup(html, "html.parser")
-    assert _parse_price(soup) == 0.0
+    assert extract_price_from_html(html) == 0.0
 
 
 # ---------------------------------------------------------------------------

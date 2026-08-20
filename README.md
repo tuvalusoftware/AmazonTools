@@ -43,7 +43,7 @@ pip install -r requirements.txt
 
 # 4. Configure
 cp .env.example .env
-# Edit .env — set TARGET_ASINS and CRON_SCHEDULE at minimum
+# Edit .env — set TARGET_ASINS and SCRAPE_BSR_CRON at minimum
 
 # 5. Run
 python main.py
@@ -55,7 +55,7 @@ All options live in `.env` (see `.env.example`).
 
 | Variable | Default | Description |
 |---|---|---|
-| `CRON_SCHEDULE` | `0 * * * *` | Standard cron expression |
+| `SCRAPE_BSR_CRON` | `0 * * * *` | Standard cron expression |
 | `TIMEZONE` | `Asia/Ho_Chi_Minh` | Scheduler timezone |
 | `TARGET_ASINS` | — | Comma-separated ASIN list |
 | `MAX_PAGES` | `5` | Max review pages per ASIN per run |

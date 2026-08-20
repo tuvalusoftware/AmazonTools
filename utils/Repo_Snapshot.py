@@ -109,3 +109,55 @@ class SnapshotRepo:
             )
             for row in rows
         ]
+
+    def load_daily_snapshots_for_month(
+        self, asin: str, year: int, month: int
+    ) -> list[DailySnapshotRow]:
+        """Return date-grouped BSR rows for *asin* restricted to one calendar month.
+
+        Same per-day aggregation as ``load_daily_snapshots`` (best rank, highest
+        price per day), oldest-first, but scoped to ``year``/``month`` instead of
+        a rolling day-count window.
+
+        Returns
+        -------
+        list[DailySnapshotRow]
+            Empty list when no rows exist for that month.
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT DATE(scraped_at) AS date,
+                       MIN(rank)        AS rank,
+                       MAX(price)       AS price
+                FROM   bsr_snapshots
+                WHERE  asin = ?
+                  AND  strftime('%Y', scraped_at) = ?
+                  AND  strftime('%m', scraped_at) = ?
+                GROUP  BY DATE(scraped_at)
+                ORDER  BY DATE(scraped_at) ASC
+                """,
+                (asin, f"{year:04d}", f"{month:02d}"),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        return [
+            DailySnapshotRow(
+                date=row["date"],
+                rank=int(row["rank"]),
+                price=float(row["price"]) if row["price"] is not None else 0.0,
+            )
+            for row in rows
+        ]
+
+    def list_asins_that_have_data(self) -> list[str]:
+        """Return every distinct ASIN that has at least one row in bsr_snapshots."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute("SELECT DISTINCT asin FROM bsr_snapshots").fetchall()
+        finally:
+            conn.close()
+
+        return [row["asin"] for row in rows]

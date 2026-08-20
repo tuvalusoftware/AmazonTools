@@ -12,9 +12,7 @@ from scripts.Search_Asin_Service import SearchAsinService
 
 
 def _make_service(title: str = "Atomic Habits") -> SearchAsinService:
-    svc = SearchAsinService(title)
-    svc._state_path = Path("/nonexistent/browser_state.json")
-    return svc
+    return SearchAsinService(title)
 
 
 @contextlib.contextmanager
@@ -26,23 +24,15 @@ def _browser_stub(
     best_idx: int,
     detail_asin: str | None,
 ):
-    """Patch all browser/playwright calls so search() never opens a real browser."""
-    pw_mock = MagicMock()
-    browser_mock = MagicMock()
-    context_mock = MagicMock()
-    page_mock = MagicMock()
-    pw_mock.__enter__ = MagicMock(return_value=pw_mock)
-    pw_mock.__exit__ = MagicMock(return_value=False)
-    pw_mock.chromium.launch.return_value = browser_mock
-    browser_mock.new_context.return_value = context_mock
-    context_mock.new_page.return_value = page_mock
+    """Patch AsinPlaywrightHelper and _pick_best_asin so search() never opens a real browser."""
+    helper_mock = MagicMock()
+    helper_mock.asins = asins
+    helper_mock.el_indices = list(range(len(asins)))
+    helper_mock.screenshot_candidates.return_value = screenshots
 
     with (
-        patch("scripts.Search_Asin_Service.sync_playwright", return_value=pw_mock),
-        patch.object(svc, "_collect_candidates", return_value=(asins, list(range(len(asins))))),
-        patch.object(svc, "_screenshot_candidates", return_value=screenshots),
+        patch("scripts.Search_Asin_Service.AsinPlaywrightHelper", return_value=helper_mock),
         patch.object(svc, "_pick_best_asin", return_value=(best_idx, detail_asin)),
-        patch.object(svc, "_save_state"),
     ):
         yield
 

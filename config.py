@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     # Scheduler                                                            #
     # ------------------------------------------------------------------ #
-    CRON_SCHEDULE: str = "0 23 * * *"       # scrape once daily at 23:00
+    SCRAPE_BSR_CRON: str = "0 23 * * *"     # scrape once daily at 23:00
     TIMEZONE: str = "Asia/Ho_Chi_Minh"
 
     # ------------------------------------------------------------------ #
@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     smtp: SmtpSettings = SmtpSettings()
 
     EMAIL_DIGEST_CRON: str = "0 1 * * 1"   # weekly Monday 01:00 (interpret against TIMEZONE)
+    MONTHLY_SUMMARY_CRON: str = "5 0 1 * *"   # 1st of month, 00:05 (interpret against TIMEZONE)
 
     # ------------------------------------------------------------------ #
     # Web UI                                                               #

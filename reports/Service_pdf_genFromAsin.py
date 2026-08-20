@@ -28,9 +28,13 @@ from reports.Helper_Pdf_Loader import Helper_Pdf_Loader
 from reports.Helper_Pdf_Metrics import Helper_Pdf_Metrics
 from reports.Helper_Pdf_Renderer import Helper_Pdf_Renderer
 from utils.registry import BookRepo
+from utils.Repo_MonthlySummary import MonthlySummaryRepo
 
 # ── Tuneable constants ─────────────────────────────────────────────────────────
-DAYS = 30           # rolling window queried from bsr_snapshots
+# 0 = full history. Metrics.compute() needs full history to build a complete
+# monthly profit table; Helper_Pdf_Renderer separately windows the daily/
+# cumulative charts down to the most recent 30 days for readability.
+DAYS = 0
 OUTPUT_PATH = Path(__file__).parent / "book_performance_report.pdf"
 
 logger = logging.getLogger(__name__)
@@ -66,6 +70,7 @@ class Service_Pdf_GenFromAsin:
             had enough snapshot data (≥2 rows) to include a section.
         """
         repo = BookRepo()
+        monthly_repo = MonthlySummaryRepo()
 
         if self._asin_filter:
             asins = [self._asin_filter]
@@ -81,7 +86,7 @@ class Service_Pdf_GenFromAsin:
                 if raw is None:
                     logger.warning("Skipping ASIN %s — fewer than 2 snapshot rows", asin)
                     continue
-                metrics = Helper_Pdf_Metrics().compute(raw)
+                metrics = Helper_Pdf_Metrics(monthly_repo).compute(raw)
                 Helper_Pdf_Renderer(pdf).render_book(metrics)
                 included += 1
 
