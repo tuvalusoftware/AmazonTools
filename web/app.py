@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from utils.logger import get_logger
@@ -26,7 +27,8 @@ from web.register_service import RegisterService
 
 log = get_logger(__name__)
 
-app = FastAPI(title="Author BSR Tracker")
+app = FastAPI(title="The Book Club")
+app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
 
