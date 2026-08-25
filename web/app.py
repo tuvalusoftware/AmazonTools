@@ -58,13 +58,12 @@ async def register(
     email: str = Form(""),
     title: str = Form(""),
     profit_pct: str = Form(""),
-    current_price: str = Form(""),
 ):
     # --- basic validation ---
     def bad(msg: str):
         return _render(request, "register.html", error=msg,
                        email=email, title=title,
-                       profit_pct=profit_pct, current_price=current_price)
+                       profit_pct=profit_pct)
 
     if "@" not in email or not email.strip():
         return bad("Please enter a valid email address.")
@@ -78,15 +77,8 @@ async def register(
     except (ValueError, TypeError):
         return bad("Profit % must be a number between 0 and 100.")
 
-    try:
-        price_val = float(current_price)
-        if price_val < 0:
-            raise ValueError
-    except (ValueError, TypeError):
-        return bad("Book price must be a non-negative number.")
-
     background_tasks.add_task(
-        RegisterService(email.strip(), title.strip(), profit_val, price_val).run
+        RegisterService(email.strip(), title.strip(), profit_val).run
     )
     return _render(request, "pending.html")
 

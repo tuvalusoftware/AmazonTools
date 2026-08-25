@@ -152,6 +152,18 @@ def test_register_book_duplicate_same_email_same_asin(
     assert len(tmp_db.load_active_books()) == 1
 
 
+def test_register_book_defaults_current_price_to_zero_when_omitted(
+    tmp_db: BookRepo, sample_book: dict
+) -> None:
+    """register_book() without a current_price key seeds current_price=0.0."""
+    book = {k: v for k, v in sample_book.items() if k != "current_price"}
+    result = tmp_db.register_book(book)
+
+    assert result is True
+    rows = tmp_db.load_active_books()
+    assert rows[0]["current_price"] == 0.0
+
+
 # ---------------------------------------------------------------------------
 # unsubscribe_book
 # ---------------------------------------------------------------------------
@@ -329,5 +341,43 @@ def test_load_latest_snapshot_returns_most_recent(
 def test_load_latest_snapshot_returns_none_when_empty(tmp_db: BookRepo) -> None:
     """load_latest_snapshot() returns None when no rows exist for the ASIN."""
     result = tmp_db.load_latest_snapshot("NOTEXIST")
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# load_last_known_price
+# ---------------------------------------------------------------------------
+
+
+def test_load_last_known_price_returns_most_recent_nonzero_price(
+    tmp_db: BookRepo, sample_snapshots
+) -> None:
+    """load_last_known_price() returns the latest snapshot's price when non-zero."""
+    snaps = sample_snapshots("0735211299", n=3)
+    tmp_db.save_bsr_snapshots(snaps)
+
+    result = tmp_db.load_last_known_price("0735211299")
+
+    assert result == snaps[-1].price
+
+
+def test_load_last_known_price_skips_zero_price_rows(
+    tmp_db: BookRepo, sample_snapshots
+) -> None:
+    """load_last_known_price() ignores the latest row if its price is 0 and
+    falls back to the most recent row with a non-zero price."""
+    snaps = sample_snapshots("0735211299", n=2)
+    snaps[-1].price = 0.0
+    tmp_db.save_bsr_snapshots(snaps)
+
+    result = tmp_db.load_last_known_price("0735211299")
+
+    assert result == snaps[0].price
+
+
+def test_load_last_known_price_returns_none_when_no_rows(tmp_db: BookRepo) -> None:
+    """load_last_known_price() returns None when no snapshots exist for the ASIN."""
+    result = tmp_db.load_last_known_price("NOTEXIST")
 
     assert result is None

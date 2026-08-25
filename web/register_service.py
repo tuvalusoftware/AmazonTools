@@ -48,7 +48,7 @@ class RegisterService:
 
     Parameters
     ----------
-    email, title, profit_val, price_val:
+    email, title, profit_val:
         Validated values from the registration form.
     """
 
@@ -57,12 +57,10 @@ class RegisterService:
         email: str,
         title: str,
         profit_val: float,
-        price_val: float,
     ) -> None:
         self.email = email
         self.title = title
         self.profit_val = profit_val
-        self.price_val = price_val
 
     # ------------------------------------------------------------------ #
     # Public entry point                                                   #
@@ -91,7 +89,6 @@ class RegisterService:
                 "title": self.title,
                 "asin": asin,
                 "profit_pct": self.profit_val,
-                "current_price": self.price_val,
             }
         )
 

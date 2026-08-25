@@ -29,7 +29,6 @@ def test_post_register_returns_pending_on_valid_form(client: TestClient) -> None
                 "email": "author@example.com",
                 "title": "Atomic Habits",
                 "profit_pct": "70",
-                "current_price": "9.99",
             },
         )
 
@@ -46,22 +45,11 @@ def test_post_register_rerenders_on_validation_error(client: TestClient) -> None
             "email": "author@example.com",
             "title": "Atomic Habits",
             "profit_pct": "-1",
-            "current_price": "9.99",
         },
     )
 
     assert response.status_code == 200
     assert "error" in response.text.lower()
-
-
-def test_post_register_rerenders_on_missing_current_price(client: TestClient) -> None:
-    """Missing current_price field → 422 from FastAPI (required Form field)."""
-    response = client.post(
-        "/register",
-        data={"email": "author@example.com", "title": "Atomic Habits", "profit_pct": "70"},
-    )
-
-    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +128,6 @@ def _make_service() -> "RegisterService":  # noqa: F821
         email="author@example.com",
         title="Atomic Habits",
         profit_val=70.0,
-        price_val=9.99,
     )
 
 
