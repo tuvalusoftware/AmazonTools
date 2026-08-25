@@ -55,10 +55,10 @@ async def index(request: Request):
 async def register(
     request: Request,
     background_tasks: BackgroundTasks,
-    email: str = Form(...),
-    title: str = Form(...),
-    profit_pct: str = Form(...),
-    current_price: str = Form(...),
+    email: str = Form(""),
+    title: str = Form(""),
+    profit_pct: str = Form(""),
+    current_price: str = Form(""),
 ):
     # --- basic validation ---
     def bad(msg: str):
