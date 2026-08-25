@@ -15,17 +15,68 @@ Responsibilities:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from config import settings
+from utils.email_sender import send_email
 from utils.logger import get_logger
 
 log = get_logger(__name__)
 
 _SIGNIN_URL = "https://www.amazon.com/gp/sign-in.html"
+
+# Don't send more than one session-expired alert within this window — a
+# single scrape run can hit every failing ASIN/retry and would otherwise
+# flood the inbox.
+_ALERT_THROTTLE_HOURS = 12
+_ALERT_MARKER_PATH = "data/.session_alert_last_sent"
+
+
+def _notify_session_expired() -> None:
+    """Email AMAZON_EMAIL that the saved session needs a fresh `make login`.
+
+    Called when auto-login fails (Amazon is demanding OTP/CAPTCHA/device
+    approval that can't be completed headlessly), which is the concrete
+    signal that browser_state.json is dead — not the cookie expiry dates,
+    which are far in the future and not the actual failure mode.
+    """
+    marker = Path(_ALERT_MARKER_PATH)
+    now = datetime.now(timezone.utc)
+    if marker.exists():
+        try:
+            last = datetime.fromisoformat(marker.read_text().strip())
+            if now - last < timedelta(hours=_ALERT_THROTTLE_HOURS):
+                return
+        except Exception:
+            pass
+
+    to = settings.AMAZON_EMAIL
+    if not to:
+        log.warning("Cannot send session-expired alert — AMAZON_EMAIL not set")
+        return
+
+    try:
+        send_email(
+            to=to,
+            subject="[BSR Tracker] Amazon session expired — re-login required",
+            html_body=(
+                "<p>The saved Amazon browser session "
+                "(<code>data/browser_state.json</code>) is no longer valid. "
+                "Amazon is requiring additional verification (OTP / CAPTCHA / "
+                "device approval) that the scraper cannot complete automatically.</p>"
+                "<p>Please run <code>make login</code> and redeploy the refreshed "
+                "<code>browser_state.json</code> to the server.</p>"
+            ),
+        )
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(now.isoformat())
+        log.info("Session-expired alert email sent to %s", to)
+    except Exception as exc:
+        log.error("Failed to send session-expired alert: %s", exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -458,6 +509,7 @@ def fetch_page_html(
             log.info("Session missing or expired for %s — attempting auto-login …", url)
             ok = _do_login(page)
             if not ok:
+                _notify_session_expired()
                 _save_state(context)
                 browser.close()
                 return None
