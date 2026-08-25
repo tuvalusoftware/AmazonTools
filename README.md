@@ -1,29 +1,52 @@
-# Amazon Review Scraper — Cron Job Tool
+# Amazon BSR & Price Tracker
 
-A Python cron job that periodically scrapes Amazon product reviews and saves them locally as JSON or CSV.
+A self-hosted tool that periodically tracks Amazon Best Seller Rank (BSR) and
+price for a list of books/products, stores snapshots in SQLite, and emails
+subscribers a digest with PDF charts. Includes a small FastAPI web UI for
+readers to register/unsubscribe from the digest.
 
 ## Tech stack
 
 | Layer | Library |
 |---|---|
 | Scheduler | [APScheduler](https://apscheduler.readthedocs.io/) |
-| HTTP client | [httpx](https://www.python-httpx.org/) |
-| HTML parser | BeautifulSoup4 + lxml |
+| Browser automation | [Playwright](https://playwright.dev/python/) (persisted login session) |
+| BSR extraction | [ScrapeGraphAI](https://github.com/ScrapeGraphAI/Scrapegraph-ai) `SmartScraperGraph` (LLM-based; provider set by `LLM_PROVIDER`) |
+| Web UI | FastAPI + Uvicorn |
+| Storage | SQLite (via `utils/registry.py` repo classes) |
+| Email templating | Jinja2 |
+| PDF charts | matplotlib |
 | Config / env | pydantic-settings |
 
 ## Project structure
 
 ```
 amazon-review-scraper/
-├── main.py                  # Entry point — starts the scheduler loop
-├── config.py                # All settings (loaded from .env)
+├── main.py                    # Entry point — starts the APScheduler loop + FastAPI web UI
+├── config.py                  # All settings (loaded from .env), LLM graph_config builder
 ├── jobs/
-│   └── scrape_reviews.py    # Cron job: fetch → parse → save
+│   ├── scrape_bsr.py          # Cron job: fetch price/BSR per ASIN → save snapshot
+│   ├── email_digest.py        # Cron job: build + send the BSR digest email
+│   └── monthly_summary.py     # Cron job: precompute monthly profit summary
+├── web/
+│   ├── app.py                 # FastAPI app: register / unsubscribe pages
+│   └── templates/             # Jinja2 templates for the web UI
 ├── utils/
-│   ├── logger.py            # Rotating file + stdout logger
-│   └── storage.py           # JSON / CSV writer
-├── data/                    # Output files (auto-created)
-├── logs/                    # Log files (auto-created)
+│   ├── browser.py             # Playwright login/session helpers
+│   ├── registry.py            # BookRepo — active books registry
+│   ├── Repo_Snapshot.py       # BSR/price snapshot repo
+│   ├── Repo_CronRunLog.py     # Cron run logging repo
+│   ├── Repo_MonthlySummary.py # Monthly profit summary repo
+│   ├── Formula_calculator.py  # Profit/royalty calculations
+│   ├── logger.py              # Rotating file + stdout logger
+│   └── storage.py             # JSON / CSV writer
+├── scripts/                   # One-off/interactive helpers (ASIN lookup, run-job picker, reset-db)
+├── templates/digest.html      # Email digest HTML template
+├── reports/                   # PDF report generation (charts via matplotlib)
+├── data/                      # SQLite DB, browser session, snapshots (auto-created)
+├── logs/                      # Log files (auto-created)
+├── docs/, issues/             # Design docs and issue plans
+├── docker-compose.yml, Dockerfile
 ├── requirements.txt
 └── .env.example
 ```
@@ -34,68 +57,78 @@ amazon-review-scraper/
 # 1. Clone / enter the project
 cd amazon-review-scraper
 
-# 2. Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+# 2. Install (creates venv, installs deps, installs Playwright browsers)
+make install
 
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure
+# 3. Configure
 cp .env.example .env
-# Edit .env — set TARGET_ASINS and SCRAPE_BSR_CRON at minimum
+# Edit .env — set TARGET_ASINS, LLM_PROVIDER (+ its API key), SMTP__* at minimum
 
-# 5. Run
-python main.py
+# 4. Log in to Amazon once (opens a visible browser for OTP/CAPTCHA,
+#    saves the session to data/browser_state.json)
+make login
+
+# 5. Run the app (scheduler + web UI)
+make start
 ```
+
+## Commands
+
+- `make install` — create venv, install deps, `playwright install`
+- `make start` — run the full app (scheduler + web UI), same as `python main.py`
+- `make run` — run the BSR scrape job directly, once
+- `make run-job` — interactively pick which job to run on demand (scrape, digest, or both)
+- `make login` — interactive Amazon login (opens a visible browser for OTP/CAPTCHA), saves session to `data/browser_state.json`
+- `make test` — unit tests (`pytest -m "not integration"`, no network/session required)
+- `make test-integration` — hits live Amazon; **requires `make login` first**
+- `make reset-db -- --yes` — drop and re-create all tables (destructive, requires explicit confirmation)
+
+## Scraping
+
+- Amazon access uses a **persisted Playwright browser session** (`data/browser_state.json`), not plain HTTP requests. Run `make login` before first use or after the session expires.
+- Price is parsed directly from the DOM. BSR rank/category is extracted via an LLM (`SmartScraperGraph`) fed only a small HTML fragment — not the full page — to save tokens. Only top-level `"Kindle Store"` / `"Audible Books & Originals"` categories are kept; sub-category ranks are discarded.
+- CAPTCHA/robot-check detection saves screenshots to `data/captcha/` and `data/debug/`, and the fetch retries with exponential backoff (`SCRAPE_RETRIES`, `SCRAPE_RETRY_DELAY`).
+
+## Scheduled jobs
+
+| Job | Config | Purpose |
+|---|---|---|
+| `scrape_bsr` | `SCRAPE_BSR_CRON` (default `0 23 * * *`) | Fetch price/BSR per ASIN, save a snapshot |
+| `email_digest` | `EMAIL_DIGEST_CRON` (default weekly, Mon 01:00) | Send the BSR digest email (HTML + PDF) to registered subscribers |
+| `monthly_summary` | `MONTHLY_SUMMARY_CRON` (default `5 0 1 * *`) | Precompute the monthly profit summary; includes self-healing backfill for missed runs |
+
+All cron expressions are interpreted against `TIMEZONE`. Each run is logged to the cron run log table.
 
 ## Configuration
 
-All options live in `.env` (see `.env.example`).
+All options live in `.env` (see `.env.example`). Key groups:
 
-| Variable | Default | Description |
-|---|---|---|
-| `SCRAPE_BSR_CRON` | `0 * * * *` | Standard cron expression |
-| `TIMEZONE` | `Asia/Ho_Chi_Minh` | Scheduler timezone |
-| `TARGET_ASINS` | — | Comma-separated ASIN list |
-| `MAX_PAGES` | `5` | Max review pages per ASIN per run |
-| `REQUEST_DELAY` | `2.0` | Seconds between requests |
-| `OUTPUT_FORMAT` | `json` | `json` or `csv` |
-| `PROXY_FILE` | — | Path to a file with one proxy per line |
+| Group | Variables |
+|---|---|
+| Scheduler | `SCRAPE_BSR_CRON`, `EMAIL_DIGEST_CRON`, `MONTHLY_SUMMARY_CRON`, `TIMEZONE` |
+| Scrape targets | `TARGET_ASINS` (comma-separated), `AMAZON_PRODUCT_URL`, `SCRAPE_RETRIES`, `SCRAPE_RETRY_DELAY`, `REQUEST_DELAY` |
+| LLM (BSR extraction) | `LLM_PROVIDER` (`ollama` \| `openai` \| `groq` \| `gemini`) + matching API key/model vars, `LLM_VERBOSE` |
+| Browser | `BROWSER_HEADLESS`, `BROWSER_STATE_PATH`, `AMAZON_EMAIL`/`AMAZON_PASSWORD` (used by auto-login) |
+| Storage | `DB_PATH` (SQLite), `OUTPUT_DIR`, `OUTPUT_FORMAT` |
+| Email / SMTP | `SMTP__HOST`, `SMTP__PORT`, `SMTP__USER`, `SMTP__PASSWORD` (Gmail App Password), `SMTP__FROM_ADDR` |
+| Web UI | `WEB_PORT`, `WEB_BASE_URL` |
+| Logging | `LOG_LEVEL`, `LOG_DIR` |
 
-## Adding a new job
+> `WEB_BASE_URL` must be a host-reachable address (not `localhost`) since it's embedded in email unsubscribe links — especially easy to get wrong under Docker.
 
-1. Create `jobs/my_new_job.py` with a `run()` function.
-2. Register it in `main.py`:
+## Web UI
 
-```python
-from jobs.my_new_job import run as my_new_job
+FastAPI app (`web/app.py`) mounted alongside the scheduler on `WEB_PORT`:
 
-scheduler.add_job(
-    my_new_job,
-    trigger=CronTrigger.from_crontab("30 6 * * *"),
-    id="my_new_job",
-    name="My New Job",
-)
+- `GET /` — landing/registration page
+- `POST /register` — register an email for the BSR digest
+- `GET /registered` — confirmation page
+- `GET /unsubscribe` — unsubscribe via the link sent in digest emails
+
+## Docker
+
+```bash
+docker compose up -d --build
 ```
 
-## Output
-
-Reviews are saved under `data/<ASIN>/<UTC-timestamp>.<json|csv>`.
-
-```json
-[
-  {
-    "asin": "B08N5WRWNW",
-    "review_id": "R1ABC123",
-    "author": "John D.",
-    "rating": 4.0,
-    "title": "Great product",
-    "body": "Works exactly as described…",
-    "date": "Reviewed in the United States on January 1, 2024",
-    "verified": true,
-    "helpful_votes": 12,
-    "scraped_at": "2026-08-06T07:00:00+00:00"
-  }
-]
-```
+Uses `docker-compose.yml` / `Dockerfile`. The `bsr_data` volume persists the SQLite DB (`tracker.db`) and BSR snapshot folders across restarts and rebuilds. Requires a valid `.env` (see Configuration) — note the `WEB_BASE_URL` caveat above.

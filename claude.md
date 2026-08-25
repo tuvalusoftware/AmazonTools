@@ -2,8 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Note: `README.md` describes an earlier "review scraper" concept and does not reflect the current app (Amazon BSR/price tracker with email digest, PDF reports, and a web UI). Don't treat it as authoritative.
-
 # Project conventions for Claude
 
 ## Documentation language
