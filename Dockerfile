@@ -2,25 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# System dependencies required by Playwright/Chromium
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies and Playwright browser in one layer
+# Install Python dependencies, then Chromium + the system libs it needs
+# (--with-deps resolves the same libnss3/libatk/... set apt would need
+# manually, so there's no separate apt-get step to keep in sync).
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install chromium --with-deps
+    && playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application source
 COPY . .

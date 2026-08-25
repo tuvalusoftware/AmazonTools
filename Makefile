@@ -1,4 +1,4 @@
-.PHONY: install start run run-job login test test-integration preview-digest reset-db
+.PHONY: install start run run-job login test test-integration preview-digest reset-db pull-deploy
 
 # Catch-all rule so extra path arguments after a target are not treated as unknown targets.
 %:
@@ -48,4 +48,15 @@ test-integration:
 #   make reset-db -- --yes  — actually resets
 reset-db:
 	$(PYTHON) -m scripts.reset_db --yes
+
+COMPOSE_PROD = docker compose -f docker-compose.yml -f docker-compose.prod.yml
+
+# Pull the latest image from GHCR and recreate the prod container with it.
+# Run this on the deploy server (requires docker-compose.prod.yml's image
+# path to point at the real GHCR repo, and `docker login ghcr.io` if the
+# package is private).
+pull-deploy:
+	$(COMPOSE_PROD) pull
+	$(COMPOSE_PROD) up -d
+	docker image prune -f
 

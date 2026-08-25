@@ -1,0 +1,8 @@
+services:
+  bsr-tracker:
+    # Pull the image built by CI (.github/workflows/docker-build.yml) instead
+    # of building locally. Replace OWNER/REPO with the GHCR path, and pin a
+    # tag (a release tag or commit SHA) rather than floating on "latest".
+    image: ghcr.io/OWNER/REPO:latest
+    build: !reset null
+    restart: always

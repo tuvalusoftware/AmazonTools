@@ -8,6 +8,10 @@ __pycache__/
 data/
 logs/
 .git/
+.github/
 .cursor/
 plans/
+tests/
+docs/
+issues/
 *.md

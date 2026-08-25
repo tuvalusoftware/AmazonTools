@@ -1,0 +1,17 @@
+services:
+  bsr-tracker:
+    build: .
+    restart: "no"
+    environment:
+      LOG_LEVEL: DEBUG
+      BROWSER_HEADLESS: "false"
+    volumes:
+      # Mount source so code changes are visible without a rebuild.
+      # main.py starts uvicorn with an app object (not an import string),
+      # so this does NOT hot-reload — restart the container after edits:
+      #   docker compose -f docker-compose.yml -f docker-compose.dev.yml restart
+      - .:/app
+      - bsr_data_dev:/app/data
+
+volumes:
+  bsr_data_dev:
