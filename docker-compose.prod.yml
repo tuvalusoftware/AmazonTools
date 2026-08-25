@@ -5,3 +5,5 @@ services:
     image: ghcr.io/tuvalusoftware/amazontools:main
     build: !reset null
     restart: always
+    volumes: !override
+      - ./data:/app/data
