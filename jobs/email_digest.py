@@ -95,6 +95,46 @@ def _build_digest_html(email: str, books: list[dict]) -> str:
 
 
 # ------------------------------------------------------------------ #
+# Per-subscriber PDF                                                   #
+# ------------------------------------------------------------------ #
+
+def _build_user_pdf(asins: list[str], today: str) -> Path | None:
+    """Generate a BSR report PDF containing only *asins*.
+
+    Returns the path to the written file (named ``bsr_report_<today>.pdf``),
+    or ``None`` if generation failed or no book had enough snapshot data.
+    The caller is responsible for deleting the returned file.
+    """
+    if not asins:
+        return None
+
+    pdf_filename = f"bsr_report_{today}.pdf"
+    tmp_pdf: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".pdf", prefix="bsr_report_", delete=False
+        ) as tmp_f:
+            tmp_pdf = Path(tmp_f.name)
+
+        generated = Service_Pdf_GenFromAsin(
+            asin_filter=asins, output_path=tmp_pdf
+        ).run()
+        if generated is None:
+            log.info("No followed books had enough snapshot data yet — email without PDF")
+            tmp_pdf.unlink(missing_ok=True)
+            return None
+
+        renamed = tmp_pdf.rename(tmp_pdf.with_name(pdf_filename))
+        log.info("PDF generated at %s", renamed)
+        return renamed
+    except Exception as exc:  # noqa: BLE001
+        log.error("PDF generation failed — sending email without attachment: %s", exc)
+        if tmp_pdf is not None:
+            tmp_pdf.unlink(missing_ok=True)
+        return None
+
+
+# ------------------------------------------------------------------ #
 # Job entry point                                                      #
 # ------------------------------------------------------------------ #
 
@@ -120,37 +160,20 @@ def run() -> None:
     today = date.today().strftime("%Y-%m-%d")
     subject = f"\U0001f4da Weekly BSR Digest \u2014 {today}"
 
-    pdf_filename = f"bsr_report_{today}.pdf"
-    tmp_pdf: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".pdf", prefix="bsr_report_", delete=False
-        ) as tmp_f:
-            tmp_pdf = Path(tmp_f.name)
-
-        generated = Service_Pdf_GenFromAsin(asin_filter=None, output_path=tmp_pdf).run()
-        if generated is None:
-            log.info("No books had enough snapshot data yet — sending email without PDF")
-            tmp_pdf.unlink(missing_ok=True)
-            tmp_pdf = None
-        else:
-            tmp_pdf = tmp_pdf.rename(tmp_pdf.with_name(pdf_filename))
-            log.info("PDF generated at %s", tmp_pdf)
-    except Exception as exc:  # noqa: BLE001
-        log.error("PDF generation failed — sending email without attachment: %s", exc)
-        if tmp_pdf is not None:
-            tmp_pdf.unlink(missing_ok=True)
-        tmp_pdf = None
-
     authors_emailed = 0
     for email_addr, books in grouped.items():
         html = _build_digest_html(email_addr, books)
-        send_email(email_addr, subject, html, attachment=tmp_pdf)
+        # Build a PDF scoped to just the books this subscriber follows, so no
+        # subscriber ever receives BSR data about another subscriber's books.
+        followed_asins = [str(book["asin"]) for book in books]
+        tmp_pdf = _build_user_pdf(followed_asins, today)
+        try:
+            send_email(email_addr, subject, html, attachment=tmp_pdf)
+        finally:
+            if tmp_pdf is not None and tmp_pdf.exists():
+                tmp_pdf.unlink()
+                log.debug("Temp PDF deleted: %s", tmp_pdf)
         authors_emailed += 1
-
-    if tmp_pdf is not None and tmp_pdf.exists():
-        tmp_pdf.unlink()
-        log.debug("Temp PDF deleted: %s", tmp_pdf)
 
     log.info("Digest run complete — emailed %d author(s).", authors_emailed)
     _log_cron_run(

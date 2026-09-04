@@ -8,7 +8,7 @@ Three cron jobs are registered in `main.py` via APScheduler:
 
 - `scrape_bsr` (`jobs/scrape_bsr.py`) — daily, loops over
   `BookRepo().load_active_books()`, one BSR/price fetch per ASIN. Since
-  [issue 3](../3/07-backfill-missed-months.md), it also calls
+  [issue L3](../L3/07-backfill-missed-months.md), it also calls
   `sync_missing_months(asin)` (from `jobs/monthly_summary.py`) inline for
   each ASIN right after a successful snapshot save.
 - `monthly_summary` (`jobs/monthly_summary.py`) — monthly, loops over
@@ -27,7 +27,7 @@ disappears after 14 days.
 **Decisions**:
 
 1. **One SQLite table**, following the exact pattern of `book_monthly_summary`
-   ([issue 3, step 1](../3/01-schema.md)): plain columns, no JSON blob for
+   ([issue L3, step 1](../L3/01-schema.md)): plain columns, no JSON blob for
    the filterable dimensions (`cron_type`, `asin`, `started_at`) so they can
    be indexed and queried with normal `WHERE`/`ORDER BY` — a free-text
    `detail` column carries the non-filterable extra info (counts, error

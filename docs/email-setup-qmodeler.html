@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Setup — qmodeler.net</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#F3F5F3;
+    --surface:#FFFFFF;
+    --surface-alt:#EAF1EC;
+    --ink:#182420;
+    --ink-soft:#4E5C56;
+    --ink-faint:#7C8B84;
+    --line:#D8E0DB;
+    --accent:#1F6F5C;
+    --accent-ink:#0F4438;
+    --accent-soft:#E1EFEA;
+    --warn:#9A5B00;
+    --warn-soft:#FBEEDA;
+    --code-bg:#121A16;
+    --code-ink:#E7F2EC;
+    --code-key:#7FD9BC;
+    --code-comment:#7C8B84;
+    --shadow: 0 1px 2px rgba(24,36,32,0.04), 0 6px 20px rgba(24,36,32,0.06);
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#101713;
+      --surface:#17211C;
+      --surface-alt:#1E2A23;
+      --ink:#E7EFEA;
+      --ink-soft:#A9B8B0;
+      --ink-faint:#7E8F86;
+      --line:#2A3A32;
+      --accent:#3FB894;
+      --accent-ink:#B7ECDA;
+      --accent-soft:#1D3730;
+      --warn:#E0A84B;
+      --warn-soft:#332512;
+      --code-bg:#0B120F;
+      --code-ink:#E7F2EC;
+      --code-key:#7FD9BC;
+      --code-comment:#647169;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 30px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#101713;
+    --surface:#17211C;
+    --surface-alt:#1E2A23;
+    --ink:#E7EFEA;
+    --ink-soft:#A9B8B0;
+    --ink-faint:#7E8F86;
+    --line:#2A3A32;
+    --accent:#3FB894;
+    --accent-ink:#B7ECDA;
+    --accent-soft:#1D3730;
+    --warn:#E0A84B;
+    --warn-soft:#332512;
+    --code-bg:#0B120F;
+    --code-ink:#E7F2EC;
+    --code-key:#7FD9BC;
+    --code-comment:#647169;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 30px rgba(0,0,0,0.35);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important; transition:none!important;}
+  }
+
+  .wrap{
+    max-width:760px;
+    margin:0 auto;
+    padding:56px 24px 96px;
+  }
+
+  header.page{
+    padding-bottom:32px;
+    margin-bottom:40px;
+    border-bottom:1px solid var(--line);
+  }
+  .eyebrow{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-family:'IBM Plex Mono', ui-monospace, monospace;
+    font-size:12.5px;
+    letter-spacing:0.09em;
+    text-transform:uppercase;
+    color:var(--accent-ink);
+    background:var(--accent-soft);
+    padding:5px 11px;
+    border-radius:5px;
+    margin-bottom:18px;
+  }
+  h1{
+    font-family:'Libre Franklin', ui-sans-serif, sans-serif;
+    font-weight:800;
+    font-size:clamp(28px, 4.2vw, 38px);
+    letter-spacing:-0.01em;
+    margin:0 0 12px;
+    text-wrap:balance;
+    color:var(--ink);
+  }
+  .lede{
+    font-size:17px;
+    color:var(--ink-soft);
+    max-width:60ch;
+    margin:0;
+  }
+  .lede b{ color:var(--ink); font-weight:600; }
+
+  h2{
+    font-family:'Libre Franklin', ui-sans-serif, sans-serif;
+    font-weight:700;
+    font-size:22px;
+    letter-spacing:-0.005em;
+    margin:0 0 6px;
+    color:var(--ink);
+  }
+  .section-intro{
+    color:var(--ink-soft);
+    font-size:15px;
+    margin:0 0 24px;
+    max-width:62ch;
+  }
+  section{ margin-bottom:56px; }
+  section > .section-head{ margin-bottom:22px; }
+
+  .who{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+  }
+
+  /* Steps */
+  ol.steps{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  ol.steps li{
+    display:grid;
+    grid-template-columns:40px 1fr;
+    gap:16px;
+    padding:20px 0;
+    border-top:1px solid var(--line);
+  }
+  ol.steps li:last-child{ border-bottom:1px solid var(--line); }
+  .step-num{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:14px;
+    color:var(--accent-ink);
+    background:var(--accent-soft);
+    width:32px;
+    height:32px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-variant-numeric:tabular-nums;
+  }
+  .step-body h3{
+    font-family:'Libre Franklin', sans-serif;
+    font-size:16.5px;
+    font-weight:700;
+    margin:0 0 6px;
+    color:var(--ink);
+  }
+  .step-body p{
+    margin:0 0 8px;
+    color:var(--ink-soft);
+    font-size:14.5px;
+  }
+  .step-body p:last-child{ margin-bottom:0; }
+  .where{
+    display:inline-block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--ink-faint);
+    background:var(--surface-alt);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:2px 8px;
+    margin-top:2px;
+  }
+  code.inline{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.92em;
+    background:var(--surface-alt);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:1px 6px;
+  }
+
+  /* DNS table */
+  .table-scroll{ overflow-x:auto; border-radius:10px; border:1px solid var(--line); }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    background:var(--surface);
+    font-size:13.5px;
+    min-width:520px;
+  }
+  thead th{
+    text-align:left;
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:11.5px;
+    letter-spacing:0.07em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    background:var(--surface-alt);
+    padding:10px 14px;
+    border-bottom:1px solid var(--line);
+  }
+  tbody td{
+    padding:12px 14px;
+    border-bottom:1px solid var(--line);
+    color:var(--ink-soft);
+    vertical-align:top;
+  }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody td.mono{
+    font-family:'IBM Plex Mono', monospace;
+    color:var(--ink);
+    font-size:13px;
+    word-break:break-all;
+  }
+  tbody td.label{ color:var(--ink); font-weight:600; }
+
+  .callout{
+    display:flex;
+    gap:12px;
+    padding:16px 18px;
+    border-radius:10px;
+    background:var(--warn-soft);
+    border:1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+    margin-top:20px;
+    font-size:14px;
+    color:var(--ink);
+  }
+  .callout .mark{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:700;
+    color:var(--warn);
+    flex-shrink:0;
+  }
+  .callout p{ margin:0; color:var(--ink-soft); }
+  .callout b{ color:var(--ink); }
+
+  /* Handoff card */
+  .handoff{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+  .handoff-head{
+    padding:20px 22px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .handoff-head h3{
+    font-family:'Libre Franklin', sans-serif;
+    font-size:17px;
+    font-weight:700;
+    margin:0;
+  }
+  .handoff-head span{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--ink-faint);
+  }
+  .env-block{
+    background:var(--code-bg);
+    color:var(--code-ink);
+    font-family:'IBM Plex Mono', ui-monospace, monospace;
+    font-size:13.5px;
+    line-height:1.9;
+    padding:20px 22px;
+    margin:0;
+    overflow-x:auto;
+    white-space:pre;
+  }
+  .env-block .k{ color:var(--code-key); }
+  .env-block .c{ color:var(--code-comment); }
+  .handoff-actions{
+    padding:14px 22px 20px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  button.select-btn{
+    font-family:'IBM Plex Sans', sans-serif;
+    font-weight:600;
+    font-size:13.5px;
+    color:var(--surface);
+    background:var(--accent);
+    border:none;
+    border-radius:8px;
+    padding:9px 16px;
+    cursor:pointer;
+  }
+  button.select-btn:hover{ filter:brightness(1.06); }
+  button.select-btn:focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:2px;
+  }
+  .copy-hint{
+    font-size:12.5px;
+    color:var(--ink-faint);
+  }
+  .copy-hint.done{ color:var(--accent-ink); }
+
+  .checklist-note{
+    margin-top:18px;
+    font-size:13.5px;
+    color:var(--ink-faint);
+  }
+
+  footer.page{
+    margin-top:64px;
+    padding-top:20px;
+    border-top:1px solid var(--line);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--ink-faint);
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <span class="eyebrow">Setup guide &middot; qmodeler.net</span>
+    <h1>Email setup for qmodeler.net</h1>
+    <p class="lede">For the <b>Admin</b> managing the domain and Google Workspace. Once done, send the <b>“Send to Dev”</b> section below over a private channel (not a public chat).</p>
+  </header>
+
+  <section>
+    <div class="section-head who">Admin performs these steps</div>
+    <h2>Configuration steps</h2>
+    <p class="section-intro">Goal: create a dedicated sending mailbox (e.g. <code class="inline">noreply@qmodeler.net</code>) and an App Password the app uses to send mail via SMTP on that mailbox's behalf.</p>
+
+    <ol class="steps">
+      <li>
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <h3>Create the sending mailbox in Google Workspace</h3>
+          <p>Create a new user, e.g. <code class="inline">noreply@qmodeler.net</code>, dedicated to automated sending — don't reuse a personal mailbox.</p>
+          <span class="where">admin.google.com → Directory → Users</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <h3>Enable 2-Step Verification on that account</h3>
+          <p>An App Password can only be created once 2-Step Verification is on.</p>
+          <span class="where">myaccount.google.com → Security → 2-Step Verification</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <h3>Create an App Password</h3>
+          <p>Sign in as <code class="inline">noreply@qmodeler.net</code>, create an App Password of type "Mail" / "Other". Google shows a 16-character string once — copy it immediately.</p>
+          <span class="where">myaccount.google.com/apppasswords</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">4</span>
+        <div class="step-body">
+          <h3>Add an SPF record for the domain</h3>
+          <p>Authorizes Gmail to send on behalf of <code class="inline">qmodeler.net</code>, so outgoing mail isn't flagged as spam. Add the TXT record from the table below at the domain's DNS provider.</p>
+          <span class="where">qmodeler.net DNS provider</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">5</span>
+        <div class="step-body">
+          <h3>Send the config to dev</h3>
+          <p>Copy the env block at the bottom of this page, fill in the missing value, and send it to the dev over a private channel (password manager, encrypted DM — not plain email or group chat).</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>DNS records to add</h2>
+      <p class="section-intro">Add these at the DNS zone for <code class="inline">qmodeler.net</code>. If the domain already uses Google Workspace to receive mail (MX records set up), only the SPF row is needed.</p>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Type</th><th>Host</th><th>Value</th><th>TTL</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="label">TXT</td>
+            <td class="mono">@</td>
+            <td class="mono">v=spf1 include:_spf.google.com ~all</td>
+            <td class="mono">3600</td>
+          </tr>
+          <tr>
+            <td class="label">TXT <span style="color:var(--ink-faint); font-weight:400;">(recommended)</span></td>
+            <td class="mono">_dmarc</td>
+            <td class="mono">v=DMARC1; p=none; rua=mailto:admin@qmodeler.net</td>
+            <td class="mono">3600</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <span class="mark">!</span>
+      <p>If <code class="inline">qmodeler.net</code> already has another <code class="inline">v=spf1 …</code> TXT record (e.g. from Mailchimp or SendGrid), <b>don't add a second one</b> — merge <code class="inline">include:_spf.google.com</code> into the existing record instead. Multiple SPF records make the whole SPF check invalid.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Send to Dev</h2>
+      <p class="section-intro">Fill in the value marked <code class="inline">&lt;...&gt;</code> and send this whole block to the dev. It goes straight into the project's <code class="inline">.env</code> file.</p>
+    </div>
+
+    <div class="handoff">
+      <div class="handoff-head">
+        <h3>SMTP environment variables</h3>
+        <span>paste into .env</span>
+      </div>
+      <pre class="env-block" id="envBlock"><span class="c"># Google Workspace — qmodeler.net sending mailbox</span>
+<span class="k">SMTP__HOST</span>=smtp.gmail.com
+<span class="k">SMTP__PORT</span>=587
+<span class="k">SMTP__USER</span>=noreply@qmodeler.net
+<span class="k">SMTP__PASSWORD</span>=&lt;16-character App Password, no spaces&gt;
+<span class="k">SMTP__FROM_ADDR</span>=noreply@qmodeler.net</pre>
+      <div class="handoff-actions">
+        <button class="select-btn" id="selectBtn" type="button">Select entire block</button>
+        <span class="copy-hint" id="copyHint">Select it, then ⌘/Ctrl + C to copy</span>
+      </div>
+    </div>
+    <p class="checklist-note">Note: <code class="inline">SMTP__PASSWORD</code> is the App Password from step 3 — <b>not</b> the login password for <code class="inline">noreply@qmodeler.net</code>.</p>
+  </section>
+
+  <footer class="page">
+    <span>qmodeler.net &middot; email delivery setup</span>
+  </footer>
+
+</div>
+
+<script>
+  (function(){
+    var btn = document.getElementById('selectBtn');
+    var block = document.getElementById('envBlock');
+    var hint = document.getElementById('copyHint');
+    if (btn && block) {
+      btn.addEventListener('click', function(){
+        var range = document.createRange();
+        range.selectNodeContents(block);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        hint.textContent = 'Selected — press ⌘/Ctrl + C to copy';
+        hint.classList.add('done');
+      });
+    }
+  })();
+</script>
+</body>
+</html>

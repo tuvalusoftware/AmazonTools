@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_cron_run_log_started_at
 - `trigger` disambiguates the two paths that both write
   `cron_type='monthly_summary'` rows for the same ASIN: the monthly cron
   itself (`'cron'`) vs. the inline call from `scrape_bsr`'s daily loop
-  (`'scrape_bsr'`), per [issue 3, step 7](../3/07-backfill-missed-months.md).
+  (`'scrape_bsr'`), per [issue L3, step 7](../L3/07-backfill-missed-months.md).
   `scrape_bsr` and `email_digest` rows always use `trigger='cron'` when run
   from the scheduler; a manual invocation (`make run`, a shell one-liner)
   should pass `trigger='manual'` — see [02](./02-cron-run-repo.md) for how

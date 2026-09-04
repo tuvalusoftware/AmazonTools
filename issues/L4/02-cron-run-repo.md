@@ -88,7 +88,7 @@ LIMIT  ? OFFSET ?
   — string comparison works directly since both are ISO-8601 UTC
   (lexicographic order == chronological order, same assumption already
   relied on elsewhere in this codebase, e.g. `(year, month)` tuple
-  comparisons in [issue 3](../3/07-backfill-missed-months.md)).
+  comparisons in [issue L3](../L3/07-backfill-missed-months.md)).
 - `limit`/`offset` default to a bounded page (`100`) rather than
   unbounded — this table is append-only and will grow indefinitely (see
   "Out of scope" in [main.md](./main.md)), so an unbounded default query
