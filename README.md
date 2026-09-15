@@ -132,3 +132,6 @@ docker compose up -d --build
 ```
 
 Uses `docker-compose.yml` / `Dockerfile`. The `bsr_data` volume persists the SQLite DB (`tracker.db`) and BSR snapshot folders across restarts and rebuilds. Requires a valid `.env` (see Configuration) — note the `WEB_BASE_URL` caveat above.
+
+<!-- login ghcr.io -->
+docker login ghcr.io

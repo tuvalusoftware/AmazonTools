@@ -1,4 +1,4 @@
-.PHONY: install start run run-job login test test-integration preview-digest reset-db pull-deploy
+.PHONY: install start run run-job login test test-integration preview-digest reset-db pull-deploy logs logs-prod
 
 # Catch-all rule so extra path arguments after a target are not treated as unknown targets.
 %:
@@ -49,7 +49,15 @@ test-integration:
 reset-db:
 	$(PYTHON) -m scripts.reset_db --yes
 
+COMPOSE      = docker compose -f docker-compose.yml
 COMPOSE_PROD = docker compose -f docker-compose.yml -f docker-compose.prod.yml
+
+# Follow live container logs (Ctrl+C to stop).
+logs:
+	$(COMPOSE) logs -f --tail=100
+
+logs-prod:
+	$(COMPOSE_PROD) logs -f --tail=100
 
 # Pull the latest image from GHCR and recreate the prod container with it.
 # Run this on the deploy server (requires docker-compose.prod.yml's image
