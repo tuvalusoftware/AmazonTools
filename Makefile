@@ -52,7 +52,7 @@ test-integration:
 reset-db:
 	$(PYTHON) -m scripts.reset_db --yes
 
-# Retry ASINs whose latest scrape_bsr run today failed.
+# Retry ASINs whose latest scrape_bsr run in the last 24h failed.
 # Runs inside the running app container (cloud deploys have no local .venv) —
 # requires `docker compose up -d` first.
 retry-failed:

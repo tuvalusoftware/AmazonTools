@@ -1,11 +1,13 @@
 """
-Retry ASINs whose latest scrape_bsr cron run today failed.
+Retry ASINs whose latest scrape_bsr cron run in the last 24 hours failed.
 
 Selection: for each active ASIN in tracked_books, look at its most recent
-cron_run_log row with cron_type='scrape_bsr' and started_at falling on
-"today" in settings.TIMEZONE. Only ASINs whose latest such row has
-status='failure' are retried — an ASIN that failed earlier today but has
-since succeeded is left alone, and failures from a prior day are ignored.
+cron_run_log row with cron_type='scrape_bsr' and started_at within the last
+24 hours (a rolling window, not a calendar day — the scrape runs at 23:00,
+so a calendar-day window would miss last night's failures when retried the
+next morning). Only ASINs whose latest such row has status='failure' are
+retried — an ASIN that failed earlier in the window but has since succeeded
+is left alone, and failures older than 24 hours are ignored.
 
 Each retried ASIN follows the same flow as jobs.scrape_bsr.run():
 _scrape_bsr -> save snapshot -> sync_missing_months -> write cron_run_log
@@ -21,10 +23,7 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime, timedelta, timezone
-from datetime import time as dt_time
-from zoneinfo import ZoneInfo
 
-from config import settings
 from jobs.monthly_summary import sync_missing_months
 from jobs.scrape_bsr import _log_cron_run, _scrape_bsr
 from utils.logger import get_logger
@@ -33,19 +32,19 @@ from utils.Repo_CronRunLog import CronRunLogRepo
 
 log = get_logger(__name__)
 
-
-def _today_utc_bounds() -> tuple[str, str]:
-    """Return (start, end) UTC isoformat timestamps spanning "today" in settings.TIMEZONE."""
-    tz = ZoneInfo(settings.TIMEZONE)
-    today_local = datetime.now(tz).date()
-    start_local = datetime.combine(today_local, dt_time.min, tzinfo=tz)
-    end_local = start_local + timedelta(days=1)
-    return start_local.astimezone(timezone.utc).isoformat(), end_local.astimezone(timezone.utc).isoformat()
+_WINDOW_HOURS = 24
 
 
-def _asins_failed_today(cron_run_log_repo: CronRunLogRepo) -> list[str]:
-    """Return ASINs whose latest scrape_bsr run today has status='failure'."""
-    start_utc, end_utc = _today_utc_bounds()
+def _last_24h_utc_bounds() -> tuple[str, str]:
+    """Return (start, end) UTC isoformat timestamps spanning the last 24 hours."""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=_WINDOW_HOURS)
+    return start.isoformat(), end.isoformat()
+
+
+def _asins_failed_last_24h(cron_run_log_repo: CronRunLogRepo) -> list[str]:
+    """Return ASINs whose latest scrape_bsr run in the last 24h has status='failure'."""
+    start_utc, end_utc = _last_24h_utc_bounds()
     rows = cron_run_log_repo.query(
         cron_type="scrape_bsr",
         start_time=start_utc,
@@ -65,7 +64,7 @@ def _asins_failed_today(cron_run_log_repo: CronRunLogRepo) -> list[str]:
 
 
 def retry_failed_scrapes() -> int:
-    """Retry every active ASIN whose latest scrape_bsr run today failed.
+    """Retry every active ASIN whose latest scrape_bsr run in the last 24h failed.
 
     Returns the number of ASINs that are still failing after the retry.
     """
@@ -73,12 +72,12 @@ def retry_failed_scrapes() -> int:
     cron_run_log_repo = CronRunLogRepo()
     book_repo = BookRepo()
 
-    failed_asins = _asins_failed_today(cron_run_log_repo)
+    failed_asins = _asins_failed_last_24h(cron_run_log_repo)
     active_asins = {str(b["asin"]) for b in book_repo.load_active_books()}
     asins_to_retry = [asin for asin in failed_asins if asin in active_asins]
 
     if not asins_to_retry:
-        print("No failed scrape_bsr runs to retry for today.")
+        print("No failed scrape_bsr runs to retry from the last 24 hours.")
         return 0
 
     log.info("Retrying %d ASIN(s): %s", len(asins_to_retry), ", ".join(asins_to_retry))
