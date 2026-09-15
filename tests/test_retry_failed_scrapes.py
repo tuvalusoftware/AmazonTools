@@ -26,17 +26,13 @@ def _active_book(asin: str) -> dict:
     return {"asin": asin, "email": "a@example.com", "title": "T", "profit_pct": 0.7, "current_price": 9.99, "active": 1}
 
 
-def _today_iso(hour: int = 10) -> str:
-    return datetime.now(timezone.utc).replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
+def _hours_ago_iso(hours: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
-def _yesterday_iso(hour: int = 10) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
-
-
-def test_asin_failed_today_is_retried() -> None:
+def test_asin_failed_within_last_24h_is_retried() -> None:
     mock_cron_log = MagicMock()
-    mock_cron_log.query.return_value = [_row("B001", "failure", _today_iso())]
+    mock_cron_log.query.return_value = [_row("B001", "failure", _hours_ago_iso(2))]
     mock_book_repo = MagicMock()
     mock_book_repo.load_active_books.return_value = [_active_book("B001")]
     mock_book_repo.save_bsr_snapshots.return_value = 1
@@ -55,11 +51,11 @@ def test_asin_failed_today_is_retried() -> None:
     assert still_failing == 0
 
 
-def test_asin_failed_then_succeeded_later_today_is_skipped() -> None:
+def test_asin_failed_then_succeeded_later_in_window_is_skipped() -> None:
     mock_cron_log = MagicMock()
     mock_cron_log.query.return_value = [
-        _row("B001", "success", _today_iso(hour=12)),
-        _row("B001", "failure", _today_iso(hour=9)),
+        _row("B001", "success", _hours_ago_iso(1)),
+        _row("B001", "failure", _hours_ago_iso(5)),
     ]
     mock_book_repo = MagicMock()
     mock_book_repo.load_active_books.return_value = [_active_book("B001")]
@@ -76,21 +72,22 @@ def test_asin_failed_then_succeeded_later_today_is_skipped() -> None:
     assert still_failing == 0
 
 
-def test_yesterdays_failure_is_skipped(tmp_db) -> None:
+def test_failure_older_than_24h_is_skipped(tmp_db) -> None:
     """Uses the real CronRunLogRepo/BookRepo against a temp SQLite DB so the
-    today-boundary math in _asins_failed_today runs for real, not mocked."""
+    24h-window math in _asins_failed_last_24h runs for real, not mocked."""
     from utils.Repo_CronRunLog import CronRunLogRepo
 
     tmp_db.register_book(
         {"email": "a@example.com", "title": "T", "asin": "B001", "profit_pct": 0.7, "current_price": 9.99}
     )
     cron_log = CronRunLogRepo(db_path=tmp_db._db_path)
+    stale_at = _hours_ago_iso(25)
     cron_log.save(
         "scrape_bsr",
         asin="B001",
         trigger="cron",
-        started_at=_yesterday_iso(),
-        finished_at=_yesterday_iso(),
+        started_at=stale_at,
+        finished_at=stale_at,
         status="failure",
         detail="no BSR data found",
     )
@@ -109,7 +106,7 @@ def test_yesterdays_failure_is_skipped(tmp_db) -> None:
 
 def test_inactive_asin_is_skipped() -> None:
     mock_cron_log = MagicMock()
-    mock_cron_log.query.return_value = [_row("B001", "failure", _today_iso())]
+    mock_cron_log.query.return_value = [_row("B001", "failure", _hours_ago_iso(2))]
     mock_book_repo = MagicMock()
     mock_book_repo.load_active_books.return_value = []  # B001 not active
 
@@ -140,7 +137,7 @@ def test_nothing_to_retry_returns_zero() -> None:
 
 def test_still_failing_after_retry_is_counted() -> None:
     mock_cron_log = MagicMock()
-    mock_cron_log.query.return_value = [_row("B001", "failure", _today_iso())]
+    mock_cron_log.query.return_value = [_row("B001", "failure", _hours_ago_iso(2))]
     mock_book_repo = MagicMock()
     mock_book_repo.load_active_books.return_value = [_active_book("B001")]
 

@@ -82,7 +82,7 @@ make start
 - `make test` — unit tests (`pytest -m "not integration"`, no network/session required)
 - `make test-integration` — hits live Amazon; **requires `make login` first**
 - `make reset-db -- --yes` — drop and re-create all tables (destructive, requires explicit confirmation)
-- `make retry-failed` — retry today's failed ASIN scrapes; runs inside the app container via `docker compose exec bsr-tracker python -m scripts.retry_failed_scrapes` (requires `docker compose up -d` first — this is how cloud deploys, which have no local `.venv`, run it too)
+- `make retry-failed` — retry ASINs whose latest scrape_bsr run in the last 24 hours failed; runs inside the app container via `docker compose exec bsr-tracker python -m scripts.retry_failed_scrapes` (requires `docker compose up -d` first — this is how cloud deploys, which have no local `.venv`, run it too)
 
 ## Scraping
 
