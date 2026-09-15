@@ -232,7 +232,7 @@ class BookRepo:
                             book["title"],
                             book["asin"],
                             book["profit_pct"],
-                            book["current_price"],
+                            book.get("current_price", 0.0),
                             added_at,
                         ),
                     )
@@ -314,6 +314,19 @@ class BookRepo:
                 (asin,),
             ).fetchone()
             return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def load_last_known_price(self, asin: str) -> float | None:
+        """Return the most recent non-zero price scraped for *asin*, or None."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT price FROM bsr_snapshots"
+                " WHERE asin=? AND price > 0 ORDER BY scraped_at DESC LIMIT 1",
+                (asin,),
+            ).fetchone()
+            return float(row["price"]) if row else None
         finally:
             conn.close()
 

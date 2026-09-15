@@ -116,7 +116,15 @@ def _scrape_bsr(
         if price:
             log.info("scrape_bsr: ASIN %s price → $%.2f (via DOM)", asin, price)
         else:
-            log.warning("scrape_bsr: ASIN %s price not found in DOM", asin)
+            last_known_price = BookRepo().load_last_known_price(asin)
+            if last_known_price:
+                price = last_known_price
+                log.info(
+                    "scrape_bsr: ASIN %s price not found in DOM — using last known price $%.2f",
+                    asin, price,
+                )
+            else:
+                log.warning("scrape_bsr: ASIN %s price not found in DOM (no prior price to fall back to)", asin)
 
         fragment = extract_bsr_html_fragment(html)
         log.debug(

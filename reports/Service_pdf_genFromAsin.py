@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 from matplotlib.backends.backend_pdf import PdfPages
@@ -46,15 +47,16 @@ class Service_Pdf_GenFromAsin:
     Parameters
     ----------
     asin_filter:
-        Restrict the report to a single ASIN.  ``None`` (default) generates
-        one section per active book in ``tracked_books``.
+        Restrict the report to a single ASIN, or to a list of ASINs (e.g. the
+        books a single subscriber follows).  ``None`` (default) generates one
+        section per active book in ``tracked_books``.
     output_path:
         Destination for the PDF file.  Falls back to ``OUTPUT_PATH`` constant.
     """
 
     def __init__(
         self,
-        asin_filter: str | None = None,
+        asin_filter: str | Sequence[str] | None = None,
         output_path: Path | None = None,
     ) -> None:
         self._asin_filter = asin_filter
@@ -72,10 +74,12 @@ class Service_Pdf_GenFromAsin:
         repo = BookRepo()
         monthly_repo = MonthlySummaryRepo()
 
-        if self._asin_filter:
+        if self._asin_filter is None:
+            asins = [str(book["asin"]) for book in repo.load_active_books()]
+        elif isinstance(self._asin_filter, str):
             asins = [self._asin_filter]
         else:
-            asins = [str(book["asin"]) for book in repo.load_active_books()]
+            asins = [str(a) for a in self._asin_filter]
 
         output = self._output_path.resolve()
 

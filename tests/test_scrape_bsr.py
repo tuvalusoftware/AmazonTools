@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobs.scrape_bsr import BestSellerRank, run
+from jobs.scrape_bsr import BestSellerRank, _scrape_bsr, run
 from utils.browser import extract_price_from_html
 
 
@@ -48,6 +48,69 @@ def test_price_falls_back_to_a_price_text() -> None:
 def test_price_defaults_to_zero_when_no_selector_matches() -> None:
     html = "<html><body><p>No price here</p></body></html>"
     assert extract_price_from_html(html) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _scrape_bsr — price fallback to last known price
+# ---------------------------------------------------------------------------
+
+
+def test_scrape_bsr_uses_last_known_price_when_dom_price_missing() -> None:
+    """When the DOM has no price, fall back to BookRepo.load_last_known_price()."""
+    mock_repo = MagicMock()
+    mock_repo.load_last_known_price.return_value = 14.99
+    mock_graph = MagicMock()
+    mock_graph.run.return_value = {"ranks": [{"rank": 42, "category": "Books"}]}
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr.fetch_page_html", return_value="<html></html>"),
+        patch("jobs.scrape_bsr.extract_price_from_html", return_value=0.0),
+        patch("jobs.scrape_bsr.SmartScraperGraph", return_value=mock_graph),
+    ):
+        ranks = _scrape_bsr("B00TEST123")
+
+    assert len(ranks) == 1
+    assert ranks[0].price == 14.99
+    mock_repo.load_last_known_price.assert_called_once_with("B00TEST123")
+
+
+def test_scrape_bsr_price_stays_zero_when_no_last_known_price() -> None:
+    """When the DOM has no price and no prior snapshot exists, price stays 0.0."""
+    mock_repo = MagicMock()
+    mock_repo.load_last_known_price.return_value = None
+    mock_graph = MagicMock()
+    mock_graph.run.return_value = {"ranks": [{"rank": 42, "category": "Books"}]}
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr.fetch_page_html", return_value="<html></html>"),
+        patch("jobs.scrape_bsr.extract_price_from_html", return_value=0.0),
+        patch("jobs.scrape_bsr.SmartScraperGraph", return_value=mock_graph),
+    ):
+        ranks = _scrape_bsr("B00TEST123")
+
+    assert len(ranks) == 1
+    assert ranks[0].price == 0.0
+
+
+def test_scrape_bsr_does_not_look_up_last_known_price_when_dom_price_found() -> None:
+    """When the DOM price is found, the fallback lookup must not be called."""
+    mock_repo = MagicMock()
+    mock_graph = MagicMock()
+    mock_graph.run.return_value = {"ranks": [{"rank": 42, "category": "Books"}]}
+
+    with (
+        patch("jobs.scrape_bsr.BookRepo", return_value=mock_repo),
+        patch("jobs.scrape_bsr.fetch_page_html", return_value="<html></html>"),
+        patch("jobs.scrape_bsr.extract_price_from_html", return_value=9.99),
+        patch("jobs.scrape_bsr.SmartScraperGraph", return_value=mock_graph),
+    ):
+        ranks = _scrape_bsr("B00TEST123")
+
+    assert len(ranks) == 1
+    assert ranks[0].price == 9.99
+    mock_repo.load_last_known_price.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

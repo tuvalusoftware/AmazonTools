@@ -8,7 +8,7 @@ in `finally` or in `except`, then `CronRunLogRepo().save(...)`. Logging a
 run must never itself abort the job — wrap the `save()` call in its own
 `try/except`, logged via `log.warning`, same defensive style already used
 for `sync_missing_months` in `jobs/scrape_bsr.py`
-([issue 3, step 7](../3/07-backfill-missed-months.md)): a broken log write
+([issue L3, step 7](../L3/07-backfill-missed-months.md)): a broken log write
 must not lose a day's BSR snapshot or a computed monthly summary.
 
 ## `jobs/scrape_bsr.py`
@@ -25,7 +25,7 @@ happens inside the per-ASIN loop:
    reason on failure.
 2. **`cron_type='monthly_summary'`, `trigger='scrape_bsr'`** — wraps the
    existing `sync_missing_months(asin)` call (already inside its own
-   `try/except` per issue 3). `status='success'` with
+   `try/except` per issue L3). `status='success'` with
    `detail=f"{computed} month(s) backfilled"` on success; on the existing
    `except Exception as exc` branch, `status='failure'` with
    `detail=str(exc)` — this reuses the exception already being caught
@@ -39,7 +39,7 @@ what happens inside the two existing blocks.
 `asins` with empty `ranks` still get a `scrape_bsr` failure row (per
 requirement: "kết quả của các lần cron" includes failed attempts, not just
 successes) but do **not** get a `monthly_summary` row at all — that call
-is already skipped entirely when `ranks` is empty (per issue 3), so there
+is already skipped entirely when `ranks` is empty (per issue L3), so there
 is nothing to log for it.
 
 ## `jobs/monthly_summary.py`
