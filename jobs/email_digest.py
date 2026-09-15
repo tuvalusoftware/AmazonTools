@@ -8,13 +8,9 @@ Entry point:
 
 from __future__ import annotations
 
-import smtplib
 import tempfile
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from urllib.parse import quote
 
@@ -22,6 +18,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from config import settings
 from reports.Service_pdf_genFromAsin import Service_Pdf_GenFromAsin
+from utils.email_sender import send_email
 from utils.Formula_calculator import Formula
 from utils.logger import get_logger
 from utils.registry import BookRepo
@@ -98,67 +95,43 @@ def _build_digest_html(email: str, books: list[dict]) -> str:
 
 
 # ------------------------------------------------------------------ #
-# SMTP sender                                                          #
+# Per-subscriber PDF                                                   #
 # ------------------------------------------------------------------ #
 
-def send_email(
-    to: str,
-    subject: str,
-    html_body: str,
-    attachment: Path | None = None,
-) -> None:
-    """Send *html_body* to *to* via configured SMTP settings.
+def _build_user_pdf(asins: list[str], today: str) -> Path | None:
+    """Generate a BSR report PDF containing only *asins*.
 
-    When *attachment* is provided, the message is wrapped in a
-    ``multipart/mixed`` envelope with the HTML as a ``multipart/alternative``
-    sub-part and the file attached as ``application/octet-stream``.
-
-    Errors are logged at ERROR level; exceptions are not propagated so
-    that a single bad recipient does not abort the digest run.
+    Returns the path to the written file (named ``bsr_report_<today>.pdf``),
+    or ``None`` if generation failed or no book had enough snapshot data.
+    The caller is responsible for deleting the returned file.
     """
-    smtp_cfg = settings.smtp
-    from_addr = smtp_cfg.from_addr or smtp_cfg.user
+    if not asins:
+        return None
 
-    html_part = MIMEMultipart("alternative")
-    html_part.attach(MIMEText(html_body, "html", "utf-8"))
-
-    if attachment is not None:
-        msg = MIMEMultipart("mixed")
-        msg["Subject"] = subject
-        msg["From"] = from_addr
-        msg["To"] = to
-        msg.attach(html_part)
-        pdf_bytes = attachment.read_bytes()
-        pdf_part = MIMEApplication(pdf_bytes, Name=attachment.name)
-        pdf_part["Content-Disposition"] = f'attachment; filename="{attachment.name}"'
-        msg.attach(pdf_part)
-    else:
-        msg = html_part
-        msg["Subject"] = subject
-        msg["From"] = from_addr
-        msg["To"] = to
-
+    pdf_filename = f"bsr_report_{today}.pdf"
+    tmp_pdf: Path | None = None
     try:
-        if smtp_cfg.port == 465:
-            with smtplib.SMTP_SSL(smtp_cfg.host, smtp_cfg.port) as server:
-                if smtp_cfg.user and smtp_cfg.password:
-                    server.login(smtp_cfg.user, smtp_cfg.password)
-                server.sendmail(from_addr, [to], msg.as_string())
-        else:
-            with smtplib.SMTP(smtp_cfg.host, smtp_cfg.port) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                if smtp_cfg.user and smtp_cfg.password:
-                    server.login(smtp_cfg.user, smtp_cfg.password)
-                server.sendmail(from_addr, [to], msg.as_string())
+        with tempfile.NamedTemporaryFile(
+            suffix=".pdf", prefix="bsr_report_", delete=False
+        ) as tmp_f:
+            tmp_pdf = Path(tmp_f.name)
 
-        log.info("Digest email sent to %s", to)
+        generated = Service_Pdf_GenFromAsin(
+            asin_filter=asins, output_path=tmp_pdf
+        ).run()
+        if generated is None:
+            log.info("No followed books had enough snapshot data yet — email without PDF")
+            tmp_pdf.unlink(missing_ok=True)
+            return None
 
-    except smtplib.SMTPException as exc:
-        log.error("SMTP error sending to %s: %s", to, exc)
+        renamed = tmp_pdf.rename(tmp_pdf.with_name(pdf_filename))
+        log.info("PDF generated at %s", renamed)
+        return renamed
     except Exception as exc:  # noqa: BLE001
-        log.error("Unexpected error sending email to %s: %s", to, exc)
+        log.error("PDF generation failed — sending email without attachment: %s", exc)
+        if tmp_pdf is not None:
+            tmp_pdf.unlink(missing_ok=True)
+        return None
 
 
 # ------------------------------------------------------------------ #
@@ -187,37 +160,20 @@ def run() -> None:
     today = date.today().strftime("%Y-%m-%d")
     subject = f"\U0001f4da Weekly BSR Digest \u2014 {today}"
 
-    pdf_filename = f"bsr_report_{today}.pdf"
-    tmp_pdf: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".pdf", prefix="bsr_report_", delete=False
-        ) as tmp_f:
-            tmp_pdf = Path(tmp_f.name)
-
-        generated = Service_Pdf_GenFromAsin(asin_filter=None, output_path=tmp_pdf).run()
-        if generated is None:
-            log.info("No books had enough snapshot data yet — sending email without PDF")
-            tmp_pdf.unlink(missing_ok=True)
-            tmp_pdf = None
-        else:
-            tmp_pdf = tmp_pdf.rename(tmp_pdf.with_name(pdf_filename))
-            log.info("PDF generated at %s", tmp_pdf)
-    except Exception as exc:  # noqa: BLE001
-        log.error("PDF generation failed — sending email without attachment: %s", exc)
-        if tmp_pdf is not None:
-            tmp_pdf.unlink(missing_ok=True)
-        tmp_pdf = None
-
     authors_emailed = 0
     for email_addr, books in grouped.items():
         html = _build_digest_html(email_addr, books)
-        send_email(email_addr, subject, html, attachment=tmp_pdf)
+        # Build a PDF scoped to just the books this subscriber follows, so no
+        # subscriber ever receives BSR data about another subscriber's books.
+        followed_asins = [str(book["asin"]) for book in books]
+        tmp_pdf = _build_user_pdf(followed_asins, today)
+        try:
+            send_email(email_addr, subject, html, attachment=tmp_pdf)
+        finally:
+            if tmp_pdf is not None and tmp_pdf.exists():
+                tmp_pdf.unlink()
+                log.debug("Temp PDF deleted: %s", tmp_pdf)
         authors_emailed += 1
-
-    if tmp_pdf is not None and tmp_pdf.exists():
-        tmp_pdf.unlink()
-        log.debug("Temp PDF deleted: %s", tmp_pdf)
 
     log.info("Digest run complete — emailed %d author(s).", authors_emailed)
     _log_cron_run(

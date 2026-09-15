@@ -119,6 +119,32 @@ def test_run_filters_to_single_asin(tmp_path: Path) -> None:
     assert called_asin == "B0001"
 
 
+def test_run_filters_to_asin_list(tmp_path: Path) -> None:
+    """When asin_filter is a list, loader.load is called once per listed ASIN."""
+    output = tmp_path / "report.pdf"
+    MockLoader, MockMetrics, MockRenderer, MockPdfPages = _build_mocks()
+
+    with patch("reports.Service_pdf_genFromAsin.BookRepo") as MockBookRepo, \
+         patch("reports.Service_pdf_genFromAsin.Helper_Pdf_Loader", MockLoader), \
+         patch("reports.Service_pdf_genFromAsin.Helper_Pdf_Metrics", MockMetrics), \
+         patch("reports.Service_pdf_genFromAsin.Helper_Pdf_Renderer", MockRenderer), \
+         patch("reports.Service_pdf_genFromAsin.PdfPages", MockPdfPages):
+
+        MockBookRepo.return_value.load_active_books.return_value = [
+            _make_book("B0001"),
+            _make_book("B0002"),
+            _make_book("B0003"),
+        ]
+
+        Service_Pdf_GenFromAsin(
+            asin_filter=["B0001", "B0003"], output_path=output
+        ).run()
+
+    MockBookRepo.return_value.load_active_books.assert_not_called()
+    called_asins = [c.args[0] for c in MockLoader.return_value.load.call_args_list]
+    assert called_asins == ["B0001", "B0003"]
+
+
 # ---------------------------------------------------------------------------
 # test_run_all_active_books_when_no_filter
 # ---------------------------------------------------------------------------
