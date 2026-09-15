@@ -1,4 +1,4 @@
-.PHONY: install start run run-job login test test-integration preview-digest reset-db
+.PHONY: install start run run-job login test test-integration preview-digest reset-db retry-failed
 
 # Catch-all rule so extra path arguments after a target are not treated as unknown targets.
 %:
@@ -8,6 +8,9 @@ VENV   = .venv
 PYTHON = $(VENV)/bin/python
 PIP    = $(VENV)/bin/pip
 PYTHON3 = python3.11
+
+DOCKER_COMPOSE = docker compose
+DOCKER_SERVICE = bsr-tracker
 
 install:
 	$(PYTHON3) -m venv $(VENV)
@@ -48,4 +51,10 @@ test-integration:
 #   make reset-db -- --yes  — actually resets
 reset-db:
 	$(PYTHON) -m scripts.reset_db --yes
+
+# Retry ASINs whose latest scrape_bsr run today failed.
+# Runs inside the running app container (cloud deploys have no local .venv) —
+# requires `docker compose up -d` first.
+retry-failed:
+	$(DOCKER_COMPOSE) exec $(DOCKER_SERVICE) python -m scripts.retry_failed_scrapes
 
