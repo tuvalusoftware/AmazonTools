@@ -485,7 +485,9 @@ def fetch_page_html(
         last_exc: Exception | None = None
         for attempt in range(1 + retries):
             try:
-                page.goto(url, wait_until="networkidle", timeout=30_000)
+                # "load" is enough — Amazon product pages keep firing analytics
+                # so "networkidle" often never completes within the timeout.
+                page.goto(url, wait_until="load", timeout=30_000)
                 last_exc = None
                 break
             except Exception as exc:
@@ -516,7 +518,7 @@ def fetch_page_html(
 
             # Re-navigate to the original review URL
             try:
-                page.goto(url, wait_until="networkidle", timeout=30_000)
+                page.goto(url, wait_until="load", timeout=30_000)
             except Exception as exc:
                 log.warning("fetch_page_html: re-navigation failed — %s", exc)
                 _save_state(context)
